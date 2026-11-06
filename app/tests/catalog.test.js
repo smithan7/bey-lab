@@ -73,3 +73,21 @@ test('user part wins on id collision; search ranking', () => {
   assert.equal(m.find((p) => p.id === 'bit:turbo').source, 'user');
   assert.equal(searchParts(parts, 'turbo', 'bit')[0].id, 'bit:turbo');
 });
+
+test('sortParts orders by kind group, then name A→Z with numbers in numeric order', async () => {
+  const { sortParts } = await import('../src/catalog.js');
+  const mk = (kind, displayName) => ({ id: `${kind}:${displayName}`, kind, name: displayName, displayName });
+  const parts = [mk('ratchet', '9-60'), mk('ratchet', '1-60'), mk('ratchet', '3-60'),
+    mk('blade', 'wizard Rod'), mk('blade', 'Cobalt Drake'), mk('blade', 'Aero Pegasus')];
+  assert.deepEqual(sortParts(parts, ['blade', 'ratchet']).map((p) => p.displayName),
+    ['Aero Pegasus', 'Cobalt Drake', 'wizard Rod', '1-60', '3-60', '9-60']);
+  assert.equal(parts[0].displayName, '9-60', 'does not mutate its input');
+});
+
+test('typeLabel maps catalog types and hides unknown', async () => {
+  const { typeLabel, PART_TYPES } = await import('../src/catalog.js');
+  assert.deepEqual(PART_TYPES, ['attack', 'defense', 'stamina', 'balance']);
+  assert.equal(typeLabel('defense'), 'Defense');
+  assert.equal(typeLabel('unknown'), null);
+  assert.equal(typeLabel(null), null);
+});

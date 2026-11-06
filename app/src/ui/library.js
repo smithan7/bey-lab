@@ -1,6 +1,6 @@
 // Parts tab: tiles per group, owned toggle, detail sheet with photos, add/merge/rename.
 // DOM is built with textContent only (names can be user-entered).
-import { PART_KINDS, searchParts, slug } from '../catalog.js';
+import { PART_KINDS, PART_TYPES, searchParts, slug, sortParts, typeLabel } from '../catalog.js';
 import { resizeImage } from '../photos.js';
 import { h, openSheet, searchBox, listButton } from './pickers.js';
 import { toast } from './log.js';
@@ -15,17 +15,31 @@ const KIND_LABEL = {
   blade: 'Blade', ratchet: 'Ratchet', bit: 'Bit', lock_chip: 'Lock chip', main_blade: 'Main blade',
   over_blade: 'Over blade', metal_blade: 'Metal blade', assist_blade: 'Assist blade',
 };
+// Kinds that never carry a type (so no type tag, filter or picker).
+const UNTYPED = new Set(['ratchet', 'lock_chip']);
 const CONF_LABEL = { high: 'high', medium: 'medium (combo shot)', low: 'low confidence' };
 
 // Session memory (not persisted).
 let groupId = 'blade';
 let query = '';
 let ownedOnly = false;
+let typeFilter = 'all';
 
 let tileUrls = [];
 const revoke = (urls) => { for (const u of urls.splice(0)) URL.revokeObjectURL(u); };
 
 const text = (tag, cls, s) => { const e = h(tag, cls ? { class: cls } : {}); e.textContent = s; return e; };
+const typeTag = (type) => { const l = typeLabel(type); return l ? text('span', `type type-${type}`, l) : null; };
+function typeSelect(current) {
+  const sel = h('select', { class: 'field', 'aria-label': 'Type' });
+  for (const t of ['', ...PART_TYPES]) {
+    const o = h('option', { value: t });
+    o.textContent = t ? typeLabel(t) : 'Not sure';
+    if ((current ?? '') === t) o.selected = true;
+    sel.append(o);
+  }
+  return sel;
+}
 const btn = (label, onClick, cls = '') => {
   const b = h('button', { type: 'button', class: cls });
   b.textContent = label;
@@ -88,8 +102,9 @@ export const tab = {
       grid.replaceChildren();
       const base = ctx.parts.filter((p) => !p.hidden && group.kinds.includes(p.kind));
       let hits = searchParts(base, query);
-      if (!query.trim()) hits = hits.sort((a, b) => group.kinds.indexOf(a.kind) - group.kinds.indexOf(b.kind));
+      if (!query.trim()) hits = sortParts(hits, group.kinds);
       if (ownedOnly) hits = hits.filter((p) => p.owned);
+      if (typeFilter !== 'all') hits = hits.filter((p) => p.type === typeFilter);
       const owned = base.filter((p) => p.owned).length;
       count.textContent = `${hits.length} shown · ${owned} of ${base.length} owned`;
       for (const p of hits) grid.append(tile(p));
@@ -113,7 +128,10 @@ export const tab = {
       const sub = subtitle(p);
       const conf = !cover && p.imageUrl && p.imageConfidence ? text('span', 'conf', CONF_LABEL[p.imageConfidence] ?? p.imageConfidence) : null;
       const s = h('div', { class: 's' }, sub ? `${sub} ` : '', conf);
-      t.append(img, name, s);
+      t.append(img, name);
+      const tag = typeTag(p.type);
+      if (tag) t.append(tag);
+      t.append(s);
       if (p.owned) t.append(text('span', 'badge', '✓ Owned'));
       const info = h('button', { type: 'button', class: 'info', 'aria-label': `Details for ${p.displayName}` });
       info.textContent = 'ⓘ';
@@ -137,7 +155,19 @@ export const tab = {
     const addBtn = btn('Add part', () => openAddPart(ctx), 'primary');
     const bar = h('div', { class: 'lib-bar' }, ownedSw, addBtn);
 
-    el.append(seg, search, bar, count, grid);
+    const typed = group.kinds.some((k) => !UNTYPED.has(k));
+    if (!typed) typeFilter = 'all';
+    const types = h('div', { class: 'chips type-filter', role: 'group', 'aria-label': 'Filter by type' });
+    for (const t of ['all', ...PART_TYPES]) {
+      const b = btn(t === 'all' ? 'All types' : typeLabel(t), () => { typeFilter = t; ctx.refresh(); },
+        `chip${t === 'all' ? '' : ` type-${t}`}`);
+      b.setAttribute('aria-pressed', String(typeFilter === t));
+      types.append(b);
+    }
+
+    el.append(seg, search, bar);
+    if (typed) el.append(types);
+    el.append(count, grid);
     fill();
   },
 };
@@ -173,7 +203,7 @@ function openDetail(ctx, partId) {
     body.replaceChildren();
     if (error) body.append(h('p', { class: 'error', role: 'alert' }, error));
 
-    const meta = [KIND_LABEL[part.kind], part.line, part.type].filter(Boolean).join(' · ');
+    const meta = [KIND_LABEL[part.kind], part.line, typeLabel(part.type)].filter(Boolean).join(' · ');
     body.append(text('p', 'muted', meta));
     if (part.name !== part.displayName) body.append(text('p', 'muted', `Catalog name: ${part.name}`));
     const alts = (part.altNames ?? []).join(', ');
@@ -243,13 +273,16 @@ function openDetail(ctx, partId) {
       const al = h('input', { type: 'text', class: 'field', value: (part.altNames ?? []).join(', '), 'aria-label': 'Alt names, comma separated' });
       const flag = part.kind === 'blade' ? ['builtInRatchet', 'Built-in ratchet'] : part.kind === 'bit' ? ['ratchetIntegrated', 'Ratchet-integrated (ratchet + bit in one)'] : null;
       const cb = flag ? h('input', { type: 'checkbox', checked: !!part[flag[0]] }) : null;
+      const ty = UNTYPED.has(part.kind) ? null : typeSelect(part.type);
       body.append(text('label', 'lbl', 'Name'), nm, text('label', 'lbl', 'Alt names (comma separated)'), al);
+      if (ty) body.append(text('label', 'lbl', 'Type'), ty);
       if (cb) body.append(h('label', { class: 'check' }, cb, flag[1]));
       body.append(h('div', { class: 'row-btns' },
         btn('Save', () => act(async () => {
           const name = nm.value.trim();
           if (!name) throw new Error('A part needs a name.');
           const patch = { name, altNames: splitNames(al.value) };
+          if (ty) patch.type = ty.value || null;
           if (flag) patch[flag[0]] = cb.checked;
           await ctx.store.updateUserPart(part.id, patch);
           editing = false;
@@ -321,7 +354,12 @@ function openAddPart(ctx) {
   const cbInt = h('input', { type: 'checkbox' });
   const lblBuilt = h('label', { class: 'check' }, cbBuilt, 'Has a built-in ratchet');
   const lblInt = h('label', { class: 'check' }, cbInt, 'Ratchet-integrated (ratchet + bit in one)');
-  const sync = () => { lblBuilt.hidden = kindSel.value !== 'blade'; lblInt.hidden = kindSel.value !== 'bit'; };
+  const tySel = typeSelect(null);
+  const lblType = text('label', 'lbl', 'Type');
+  const sync = () => {
+    lblBuilt.hidden = kindSel.value !== 'blade'; lblInt.hidden = kindSel.value !== 'bit';
+    lblType.hidden = tySel.hidden = UNTYPED.has(kindSel.value);
+  };
   kindSel.addEventListener('change', sync);
   sync();
   const add = btn('Add part', async () => {
@@ -336,7 +374,8 @@ function openAddPart(ctx) {
       return;
     }
     const part = {
-      id, kind, name, altNames: splitNames(al.value), line: null, type: null, source: 'user',
+      id, kind, name, altNames: splitNames(al.value), line: null,
+      type: UNTYPED.has(kind) ? null : (tySel.value || null), source: 'user',
       builtInRatchet: kind === 'blade' && cbBuilt.checked, ratchetIntegrated: kind === 'bit' && cbInt.checked,
       cxPreset: null, imageUrl: null, imageConfidence: null,
     };
@@ -345,13 +384,13 @@ function openAddPart(ctx) {
       await ctx.store.setOverride(id, { owned: true });
     } catch (e) { err.textContent = e.message; return; }
     const g = GROUPS.find((x) => x.kinds.includes(kind));
-    groupId = g.id; query = ''; ownedOnly = false;
+    groupId = g.id; query = ''; ownedOnly = false; typeFilter = 'all';
     await ctx.refresh();
     toast(`Added ${name}`);
     sheet.done(id);
   }, 'primary');
   sheet.body.append(err,
     text('label', 'lbl', 'Kind'), kindSel, text('label', 'lbl', 'Name'), nm,
-    text('label', 'lbl', 'Alt names (comma separated)'), al, lblBuilt, lblInt, add);
+    text('label', 'lbl', 'Alt names (comma separated)'), al, lblType, tySel, lblBuilt, lblInt, add);
   return sheet.promise;
 }

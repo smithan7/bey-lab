@@ -113,3 +113,18 @@ export function searchParts(parts, query, kind) {
   }
   return scored.map((s, i) => [...s, i]).sort((a, b) => a[0] - b[0] || a[2] - b[2]).map((s) => s[1]);
 }
+
+// Beyblade X types. Catalog entries marked 'unknown' (or ratchets/lock chips, which have none) get no label.
+export const PART_TYPES = ['attack', 'defense', 'stamina', 'balance'];
+
+export function typeLabel(type) {
+  return PART_TYPES.includes(type) ? type[0].toUpperCase() + type.slice(1) : null;
+}
+
+const nameCollator = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
+
+// Copy of parts sorted by position of their kind in `kinds`, then display name A→Z.
+export function sortParts(parts, kinds = PART_KINDS) {
+  return [...parts].sort((a, b) => kinds.indexOf(a.kind) - kinds.indexOf(b.kind)
+    || nameCollator.compare(a.displayName ?? a.name, b.displayName ?? b.name));
+}
