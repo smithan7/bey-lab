@@ -179,6 +179,9 @@ function validateImport(obj) {
     if (!isObj(b) || !b.id || !b.left || !b.right || !b.winner || typeof b.points !== 'number') {
       throw new ImportError('A battle record is malformed (needs left, right, winner and points).');
     }
+    if (!['left', 'right', 'draw'].includes(b.winner)) throw new ImportError(`A battle has an unknown winner "${b.winner}" (must be left, right or draw).`);
+    if (!Number.isInteger(b.points) || b.points < 0 || b.points > 3) throw new ImportError('A battle has points outside 0 to 3.');
+    if ((b.winner === 'draw') !== (b.points === 0)) throw new ImportError('A battle has the wrong points: draws score 0, wins score 1 to 3.');
   }
   for (const k of Object.keys(obj.overrides)) if (!k) throw new ImportError('An override is missing its part id.');
   for (const f of obj.field) if (!isObj(f) || !f.comboId) throw new ImportError('A field entry is missing its combo id.');

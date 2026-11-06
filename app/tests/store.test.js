@@ -205,3 +205,13 @@ test('mergePart rejects a merge that leaves a combo invalid', async () => {
   await assert.rejects(s.mergePart('user:rib', 'bit:flat', { partsById: P }), /merge cancelled/);
   assert.deepEqual(s.state(), before);
 });
+
+test('importData checks battle winner and points', async () => {
+  const s = await createStore(new MemoryBackend());
+  const good = await s.exportData();
+  const b = (winner, points) => ({ ...good, battles: [{ id: '1', left: 'a', right: 'b', winner, finish: 'spin', points }] });
+  for (const [w, p] of [['left', 1], ['right', 3], ['left', 2], ['draw', 0]]) await s.importData(b(w, p));
+  for (const [w, p] of [['lft', 1], ['left', 0], ['left', 4], ['left', 1.5], ['left', -1], ['draw', 1], ['right', '2']]) {
+    await assert.rejects(s.importData(b(w, p)), ImportError, `${w} ${p}`);
+  }
+});
