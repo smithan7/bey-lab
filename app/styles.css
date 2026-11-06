@@ -87,3 +87,24 @@ button:disabled { opacity: .5; }
 .ibar-axis { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
 #toast { position: fixed; left: 50%; bottom: calc(var(--tab-h) + 24px + env(safe-area-inset-bottom)); transform: translateX(-50%); max-width: 90vw; background: var(--text); color: var(--bg); padding: 12px 20px; border-radius: 12px; opacity: 0; pointer-events: none; transition: opacity .15s; z-index: 200; text-align: center; }
 #toast.show { opacity: 1; }
+.report { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 4px 16px 16px; margin-bottom: 16px; }
+.report header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.report h3 { margin: 12px 0 4px; font-size: 19px; flex: 1; min-width: 200px; }
+.thumbs { display: flex; gap: 4px; margin-top: 8px; }
+.thumb { width: 40px; height: 40px; object-fit: contain; border-radius: 8px; background: var(--bg); }
+.tscroll { overflow-x: auto; }
+.rtable { border-collapse: collapse; width: 100%; font-size: 15px; font-variant-numeric: tabular-nums; }
+.rtable th, .rtable td { padding: 8px 8px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.rtable tbody th { white-space: normal; min-width: 160px; font-weight: 500; }
+.rtable .overall th, .rtable .overall td { font-weight: 700; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.chip { border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; font-size: 14px; background: var(--bg); }
+.chip.flag { border-color: var(--danger); color: var(--danger); font-weight: 600; }
+.chip.clash { border-style: dashed; }
+.toggles { display: flex; flex-wrap: wrap; gap: 12px; }
+.switch { display: inline-flex; align-items: center; gap: 12px; min-height: 56px; }
+.switch .knob { width: 44px; height: 26px; border-radius: 13px; background: var(--border); position: relative; flex: none; }
+.switch .knob::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--surface); transition: left .12s; }
+.switch.on .knob { background: var(--accent); }
+.switch.on .knob::after { left: 21px; }
+.untested summary { min-height: 56px; display: flex; align-items: center; font-weight: 600; cursor: pointer; }
