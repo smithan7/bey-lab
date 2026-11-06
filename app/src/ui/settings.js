@@ -7,7 +7,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 // used whenever it accepts files; otherwise fall back to an anchor download.
 // Returns 'shared', 'cancelled' (the user closed the share sheet) or 'downloaded'.
 export async function saveJson(json, name, {
-  nav = globalThis.navigator, doc = globalThis.document, urlApi = globalThis.URL,
+  nav = globalThis.navigator, doc = globalThis.document, urlApi = globalThis.URL, later = globalThis.setTimeout,
 } = {}) {
   const file = new File([json], name, { type: 'application/json' });
   if (nav?.canShare?.({ files: [file] })) {
@@ -26,7 +26,7 @@ export async function saveJson(json, name, {
   doc.body.append(a);
   a.click();
   a.remove();
-  setTimeout(() => urlApi.revokeObjectURL(url), 10000);
+  later(() => urlApi.revokeObjectURL(url), 10000);
   return 'downloaded';
 }
 

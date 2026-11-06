@@ -11,12 +11,13 @@ const fakeDoc = () => {
   };
 };
 const urlApi = { createObjectURL: () => 'blob:x', revokeObjectURL() {} };
+const later = (fn) => fn();
 
 test('saveJson shares a JSON file when the share sheet can take files', async () => {
   let shared;
   const nav = { canShare: ({ files }) => files.length === 1, share: async (d) => { shared = d; } };
   const doc = fakeDoc();
-  assert.equal(await saveJson('{"a":1}', 'bey-lab.json', { nav, doc, urlApi }), 'shared');
+  assert.equal(await saveJson('{"a":1}', 'bey-lab.json', { nav, doc, urlApi, later }), 'shared');
   assert.equal(shared.files[0].name, 'bey-lab.json');
   assert.equal(shared.files[0].type, 'application/json');
   assert.equal(await shared.files[0].text(), '{"a":1}');
@@ -25,18 +26,18 @@ test('saveJson shares a JSON file when the share sheet can take files', async ()
 
 test('saveJson treats AbortError as a cancel', async () => {
   const nav = { canShare: () => true, share: async () => { const e = new Error('x'); e.name = 'AbortError'; throw e; } };
-  assert.equal(await saveJson('{}', 'b.json', { nav, doc: fakeDoc(), urlApi }), 'cancelled');
+  assert.equal(await saveJson('{}', 'b.json', { nav, doc: fakeDoc(), urlApi, later }), 'cancelled');
 });
 
 test('saveJson rethrows other share failures', async () => {
   const nav = { canShare: () => true, share: async () => { throw new Error('denied'); } };
-  await assert.rejects(saveJson('{}', 'b.json', { nav, doc: fakeDoc(), urlApi }), /denied/);
+  await assert.rejects(saveJson('{}', 'b.json', { nav, doc: fakeDoc(), urlApi, later }), /denied/);
 });
 
 test('saveJson falls back to an anchor download', async () => {
   for (const nav of [{}, { canShare: () => false, share: async () => assert.fail('no share') }]) {
     const doc = fakeDoc();
-    assert.equal(await saveJson('{}', 'b.json', { nav, doc, urlApi }), 'downloaded');
+    assert.equal(await saveJson('{}', 'b.json', { nav, doc, urlApi, later }), 'downloaded');
     assert.deepEqual(doc.clicks, ['b.json']);
   }
 });
