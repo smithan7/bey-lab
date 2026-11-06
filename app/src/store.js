@@ -176,7 +176,7 @@ function validateImport(obj) {
   for (const p of obj.userParts) if (!isObj(p) || !p.id) throw new ImportError('A user part is missing its id.');
   for (const c of obj.combos) if (!isObj(c) || !c.id || !c.blade || !c.bit) throw new ImportError('A combo is malformed.');
   for (const b of obj.battles) {
-    if (!isObj(b) || !b.left || !b.right || !b.winner || typeof b.points !== 'number') {
+    if (!isObj(b) || !b.id || !b.left || !b.right || !b.winner || typeof b.points !== 'number') {
       throw new ImportError('A battle record is malformed (needs left, right, winner and points).');
     }
   }
