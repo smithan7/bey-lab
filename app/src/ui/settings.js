@@ -3,17 +3,34 @@ import { buildSeed } from '../seed.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-function download(obj) {
-  const blob = new Blob([JSON.stringify(obj)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
+// Saves a JSON backup. On iPad the share sheet (Save to Files) is the reliable route, so it is
+// used whenever it accepts files; otherwise fall back to an anchor download.
+// Returns 'shared', 'cancelled' (the user closed the share sheet) or 'downloaded'.
+export async function saveJson(json, name, {
+  nav = globalThis.navigator, doc = globalThis.document, urlApi = globalThis.URL,
+} = {}) {
+  const file = new File([json], name, { type: 'application/json' });
+  if (nav?.canShare?.({ files: [file] })) {
+    try {
+      await nav.share({ files: [file] });
+      return 'shared';
+    } catch (e) {
+      if (e?.name === 'AbortError') return 'cancelled';
+      throw e;
+    }
+  }
+  const url = urlApi.createObjectURL(new Blob([json], { type: 'application/json' }));
+  const a = doc.createElement('a');
   a.href = url;
-  a.download = `bey-lab-${today()}.json`;
-  document.body.append(a);
+  a.download = name;
+  doc.body.append(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  setTimeout(() => urlApi.revokeObjectURL(url), 10000);
+  return 'downloaded';
 }
+
+const failed = (ctx, title, e) => ctx.showDialog({ title, body: `${e?.message ?? e}`, actions: [{ label: 'OK', kind: 'primary' }] });
 
 function pickFile() {
   return new Promise((resolve) => {
@@ -43,7 +60,12 @@ export async function openSettings(ctx) {
       ],
     });
     if (choice === 'Export data' || choice === 'Export with photos') {
-      download(await ctx.store.exportData({ withPhotos: choice === 'Export with photos' }));
+      try {
+        const data = await ctx.store.exportData({ withPhotos: choice === 'Export with photos' });
+        await saveJson(JSON.stringify(data), `bey-lab-${today()}.json`);
+      } catch (e) {
+        await failed(ctx, 'Export failed', e);
+      }
     } else if (choice === 'Import data…') {
       if (await importFlow(ctx)) return;
     } else if (choice === 'Reset to preloaded data') {
@@ -85,7 +107,7 @@ async function importFlow(ctx) {
 async function resetFlow(ctx) {
   const first = await ctx.showDialog({
     title: 'Reset to preloaded data?',
-    body: 'This replaces all your battles, combos, parts and photo choices with the preloaded set.',
+    body: 'This deletes all your battles, combos, field changes, renamed and added parts, and all your photos, and puts the preloaded set back.',
     actions: [{ label: 'Cancel' }, { label: 'Continue', kind: 'danger' }],
   });
   if (first !== 'Continue') return false;
@@ -96,7 +118,12 @@ async function resetFlow(ctx) {
   });
   if (second !== 'Yes, erase and reset') return false;
   // Use importData with an explicit empty photos list so nothing is preserved.
-  await ctx.store.importData({ app: 'bey-lab', version: 1, ...buildSeed(ctx.catalogParts), photos: [] });
+  try {
+    await ctx.store.importData({ app: 'bey-lab', version: 1, ...buildSeed(ctx.catalogParts), photos: [] });
+  } catch (e) {
+    await failed(ctx, 'Reset failed', `${e?.message ?? e} Nothing was changed.`);
+    return false;
+  }
   await ctx.refresh();
   return true;
 }
