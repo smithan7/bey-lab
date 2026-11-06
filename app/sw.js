@@ -1,5 +1,5 @@
 // Bump CACHE_VERSION on every release.
-const CACHE_VERSION = 'bey-lab-v2';
+const CACHE_VERSION = 'bey-lab-v3';
 const PHOTO_CACHE = 'bey-lab-photos';
 const PHOTO_HOST = 'static.wikia.nocookie.net';
 const CORE = [

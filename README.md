@@ -12,7 +12,8 @@ Address (once published): https://smithan7.github.io/bey-lab/
 1. Open the address above in **Safari** (it has to be Safari).
 2. Tap **Share**, then **Add to Home Screen**, then **Add**.
 3. Open Bey Lab from the Home Screen once while online.
-4. Still online, open the **Parts** tab once so the part photos get saved for offline use.
+4. Still online, open the **Parts** tab and browse your owned parts once. Part photos you've
+   viewed while online are saved for offline use; ones you haven't viewed won't show offline.
 
 After that it works with no internet.
 
@@ -20,13 +21,14 @@ After that it works with no internet.
 
 Your battles live only on this iPad, so back them up. About once a week:
 
-1. Go to **Settings** and tap **Export data** (or **Export with photos** to include your own photos).
-2. Save the file to **Files**, ideally in **iCloud Drive**.
+1. Tap the **⚙** gear icon at the top right, then **Export data** (or **Export with photos**
+   to include your own photos).
+2. In the share sheet, choose **Save to Files**, then pick **iCloud Drive** and tap **Save**.
 
 ## Restore from a backup
 
-If the app is reinstalled or you move to a new iPad: install it as above, go to
-**Settings**, tap **Import data…**, and pick the saved backup file.
+If the app is reinstalled or you move to a new iPad: install it as above, tap the **⚙**
+gear icon at the top right, tap **Import data…**, and pick the saved backup file.
 
 ## Updating
 
@@ -34,7 +36,7 @@ The app updates itself. The next time you open it while online, it fetches the n
 version. It can take a second open to see the change: the first open downloads it, the
 next one shows it.
 
-## For developers
+## For grown-up developers only
 
 Run the tests (needs Node 22 or later):
 
