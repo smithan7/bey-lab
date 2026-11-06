@@ -6,7 +6,7 @@ import { h } from './pickers.js';
 import { toast } from './log.js';
 import { getLineup } from './lineup.js';
 
-const KIND = { baseline: 'Baseline', blocking: 'Blocking', screen: 'Screen', finalist: 'Finalist', stage1: 'Screen', stage2: 'Finalist', fix: 'Fix', narrow: 'Narrow' };
+const KIND = { baseline: 'Baseline', blocking: 'Blocking', stage1: 'Screen', stage2: 'Finalist', fix: 'Fix', narrow: 'Narrow' };
 
 async function start(ctx, s) {
   const known = new Set(ctx.store.state().combos.map((c) => c.id));
@@ -29,16 +29,19 @@ function swapInField(ctx, s) {
       {
         label: 'Swap', kind: 'primary',
         async onClick() {
+          let step = 'nothing changed yet';
           try {
             const cur = ctx.store.state();
             const entry = cur.field.find((f) => f.comboId === s.replaces);
             const core = !!entry?.core;
             if (!cur.combos.some((c) => c.id === fresh.id)) await ctx.store.upsertCombo(fresh);
-            await ctx.store.setFieldEntry({ comboId: s.replaces, active: false, core: false });
+            step = `${newLabel} was created but is not in the field; ${oldLabel} is unchanged`;
             await ctx.store.setFieldEntry({ comboId: fresh.id, active: true, core });
+            step = `${newLabel} is in the field, but ${oldLabel} is still active too`;
+            await ctx.store.setFieldEntry({ comboId: s.replaces, active: false, core: false });
             toast(`${newLabel} replaces ${oldLabel} in the field`);
-            await ctx.refresh();
-          } catch (e) { toast(`Not saved: ${e.message}`); }
+          } catch (e) { toast(`Not fully saved (${e.message}): ${step}.`); }
+          await ctx.refresh();
         },
       },
     ],
@@ -51,17 +54,17 @@ export const tab = {
   render(ctx, el) {
     const status = h('p', { class: 'muted', role: 'status' }, 'Working out what to test next…');
     el.append(status);
-    getLineup(ctx).then((result) => {
+    getLineup(ctx).then(({ result, state, parts }) => {
       if (!status.isConnected) return;
       el.replaceChildren();
-      const state = ctx.store.state();
-      const list = suggestTests(state, ctx.parts, result, { rng: makeRng(11) });
+      const partsById = new Map(parts.map((p) => [p.id, p]));
+      const list = suggestTests(state, parts, result, { rng: makeRng(11) });
       if (!list.length) { el.append(h('p', { class: 'muted' }, 'Nothing to suggest right now.')); return; }
       el.append(h('p', { class: 'muted' }, 'Suggested tests, most useful first. Each is about 10 battles.'));
       list.forEach((s) => {
         const row = h('article', { class: 'report', 'data-kind': s.kind });
         row.append(h('div', { class: 'chips' }, h('span', { class: 'chip' }, KIND[s.kind] ?? s.kind)));
-        row.append(h('h3', {}, `${comboLabel(s.left, ctx.partsById)} vs ${comboLabel(s.right, ctx.partsById)}`));
+        row.append(h('h3', {}, `${comboLabel(s.left, partsById)} vs ${comboLabel(s.right, partsById)}`));
         row.append(h('p', {}, s.reason));
         const bar = h('div', { class: 'toggles' });
         const go = h('button', { type: 'button', class: 'primary' }, 'Start');
@@ -73,7 +76,7 @@ export const tab = {
         bar.append(go);
         if (s.kind === 'fix' && s.replaces) {
           const old = state.combos.find((c) => c.id === s.replaces);
-          const b = h('button', { type: 'button' }, `Use in field instead of ${old ? comboLabel(old, ctx.partsById) : s.replaces}`);
+          const b = h('button', { type: 'button' }, `Use in field instead of ${old ? comboLabel(old, partsById) : s.replaces}`);
           b.addEventListener('click', () => swapInField(ctx, s));
           bar.append(b);
         }

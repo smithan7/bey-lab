@@ -12,11 +12,12 @@ function hashStr(s) {
   return x >>> 0;
 }
 
-// Deterministic key of the data that decides the ranking.
-export function lineupKey(state) {
-  const b = state.battles;
-  const last = b.reduce((m, x) => Math.max(m, x.ts ?? 0), 0);
-  return hashStr(`${b.length}|${last}|${JSON.stringify(state.field)}|${state.combos.map((c) => c.id).join(',')}`);
+// Deterministic key of everything that decides the ranking: every battle, the field,
+// the combo ids and which parts are owned (display names don't matter).
+export function lineupKey(state, parts) {
+  const bats = state.battles.map((b) => `${b.id}|${b.winner}|${b.finish}|${b.points}|${b.left}|${b.right}`).join('\n');
+  const owned = parts.filter((p) => p.owned).map((p) => p.id).sort().join(',');
+  return hashStr(`${bats}#${JSON.stringify(state.field)}#${state.combos.map((c) => c.id).join(',')}#${owned}`);
 }
 
 let worker;
@@ -43,10 +44,10 @@ function runWorker(state, parts, seed) {
 let chain = Promise.resolve();
 export function getLineup(ctx) {
   const state = ctx.store.state();
-  const key = lineupKey(state);
-  if (cache.key === key) return cache.promise;
   const parts = ctx.parts;
-  const promise = chain.catch(() => {}).then(() => runWorker(state, parts, key));
+  const key = lineupKey(state, parts);
+  if (cache.key === key) return cache.promise;
+  const promise = chain.catch(() => {}).then(() => runWorker(state, parts, key)).then((result) => ({ result, state, parts }));
   chain = promise;
   cache = { key, promise };
   promise.catch(() => { if (cache.promise === promise) cache = { key: null, promise: null }; });
@@ -62,10 +63,10 @@ export const tab = {
     const status = h('p', { class: 'muted', role: 'status' }, 'Working out the best deck…');
     el.append(status);
     const stillHere = () => status.isConnected;
-    getLineup(ctx).then((result) => {
+    getLineup(ctx).then(({ result, state, parts }) => {
       if (!stillHere()) return;
       el.replaceChildren();
-      renderResult(ctx, el, result);
+      renderResult(ctx, el, result, state, parts);
     }, (e) => {
       if (!stillHere()) return;
       status.className = 'error';
@@ -74,10 +75,10 @@ export const tab = {
   },
 };
 
-function renderResult(ctx, el, result) {
-  const state = ctx.store.state();
+function renderResult(ctx, el, result, state, parts) {
+  const partsById = new Map(parts.map((p) => [p.id, p]));
   const byId = new Map(state.combos.map((c) => [c.id, c]));
-  const label = (id) => comboLabel(byId.get(id), ctx.partsById);
+  const label = (id) => comboLabel(byId.get(id), partsById);
   const activeField = new Set(state.field.filter((f) => f.active || f.core).map((f) => f.comboId));
 
   if (result.fieldTooSmall) el.append(h('p', { class: 'chip flag' }, 'Add at least 3 combos to the field (Combos tab)'));
@@ -94,7 +95,7 @@ function renderResult(ctx, el, result) {
       const banner = h('div', { class: 'report', role: 'note' }, h('h3', {}, 'Best deck for first-to-7 is different'));
       const line = (tag, r) => h('p', {}, `${tag}: ${r.deck.map(label).join(' / ')} — first-to-5 ${pctText(r.best.target5)}, first-to-7 ${pctText(r.best.target7)}`);
       banner.append(line('First-to-5 best', first));
-      if (second) banner.append(line('First-to-7 best', second));
+      if (second !== first) banner.append(line('First-to-7 best', second));
       el.append(banner);
     }
     top.forEach((r, i) => {
@@ -121,7 +122,7 @@ function renderResult(ctx, el, result) {
         const bt = r.best[key];
         const leadText = bt.lead == null ? 'Any order' : `Lead with ${label(r.deck[bt.lead])}`;
         card.append(h('p', {}, h('strong', {}, `${name}: ${pctText(bt)}`), ` — ${leadText}`));
-        card.append(h('small', { class: 'muted' }, `Random order: ${pctText(r.randomOrder[key])}`), h('br'));
+        if (bt.lead != null) card.append(h('small', { class: 'muted' }, `Random order: ${pctText(r.randomOrder[key])}`), h('br'));
       }
       el.append(card);
     });
