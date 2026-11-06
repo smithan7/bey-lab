@@ -20,8 +20,11 @@ function pickFile() {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'application/json,.json';
-    input.addEventListener('change', () => resolve(input.files[0] ?? null));
-    input.addEventListener('cancel', () => resolve(null));
+    input.hidden = true;
+    document.body.append(input);
+    const done = (v) => { input.remove(); resolve(v); };
+    input.addEventListener('change', () => done(input.files[0] ?? null));
+    input.addEventListener('cancel', () => done(null));
     input.click();
   });
 }

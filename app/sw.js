@@ -12,7 +12,7 @@ const CORE = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE_VERSION).then((c) => c.addAll(CORE)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE_VERSION).then((c) => c.addAll(CORE.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -30,7 +30,7 @@ self.addEventListener('fetch', (e) => {
   if (url.hostname === PHOTO_HOST) {
     e.respondWith(photo(req));
   } else if (url.origin === self.location.origin) {
-    e.respondWith(staleWhileRevalidate(req));
+    e.respondWith(staleWhileRevalidate(req, e));
   }
 });
 
@@ -39,21 +39,23 @@ async function photo(req) {
   const hit = await cache.match(req.url);
   if (hit) return hit;
   const res = await fetch(req.url, { mode: 'no-cors', referrerPolicy: 'no-referrer' });
+  // Opaque (no-cors) responses hide their status, so a failed fetch can't be told apart; cached anyway.
   if (res.ok || res.type === 'opaque') cache.put(req.url, res.clone()).catch(() => {});
   return res;
 }
 
-async function staleWhileRevalidate(req) {
+async function staleWhileRevalidate(req, e) {
   const cache = await caches.open(CACHE_VERSION);
   const hit = await cache.match(req, { ignoreSearch: true });
-  const net = fetch(req).then((res) => {
-    if (res.ok) cache.put(req, res.clone()).catch(() => {});
+  const net = fetch(req).then(async (res) => {
+    if (res.ok) await cache.put(req, res.clone()).catch(() => {});
     return res;
   });
   if (hit) {
-    net.catch(() => {});
+    e.waitUntil(net.catch(() => {}));
     return hit;
   }
+  e.waitUntil(net.catch(() => {}));
   try {
     return await net;
   } catch (err) {

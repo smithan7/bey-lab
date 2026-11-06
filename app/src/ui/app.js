@@ -47,6 +47,7 @@ function showDialog({ title, body, actions }) {
 
 async function boot() {
   const res = await fetch('data/parts-catalog.json');
+  if (!res.ok) throw new Error(`Could not load the parts catalog (HTTP ${res.status}).`);
   const catalogParts = normalizeCatalog(await res.json());
 
   let store;
@@ -92,7 +93,7 @@ async function boot() {
 
   recompute();
   render();
-  window.beyLab = ctx; // handy for debugging
+  if (new URLSearchParams(location.search).has('debug')) window.beyLab = ctx;
 
   if ('serviceWorker' in navigator) {
     try { await navigator.serviceWorker.register('sw.js'); } catch (e) { console.warn('SW registration failed:', e); }

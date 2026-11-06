@@ -60,7 +60,4 @@ main { flex: 1; overflow-y: auto; padding: 16px; -webkit-overflow-scrolling: tou
 .dialog h2 { margin: 0 0 8px; font-size: 20px; }
 .dialog .body { margin: 0 0 16px; }
 .dialog .actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: flex-end; }
-.settings-list { display: flex; flex-direction: column; gap: 12px; }
-.settings-list button { width: 100%; text-align: left; }
-.hint { color: var(--muted); font-size: 14px; }
 .error { color: var(--danger); }
