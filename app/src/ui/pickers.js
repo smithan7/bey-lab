@@ -31,7 +31,7 @@ export function h(tag, props = {}, ...kids) {
 }
 
 // A full-screen sheet; resolves via sheet.done(value).
-function openSheet(title) {
+export function openSheet(title) {
   const overlay = h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' });
   const heading = h('h2', {});
   heading.textContent = title;
@@ -48,13 +48,13 @@ function openSheet(title) {
   };
 }
 
-function searchBox(onInput, placeholder) {
+export function searchBox(onInput, placeholder) {
   const input = h('input', { type: 'search', placeholder, autocomplete: 'off', autocapitalize: 'off', class: 'search' });
   input.addEventListener('input', () => onInput(input.value));
   return input;
 }
 
-function listButton(text, onClick, extra = '') {
+export function listButton(text, onClick, extra = '') {
   const b = h('button', { type: 'button', class: 'list-btn' });
   b.textContent = text;
   if (extra) b.append(h('span', { class: 'muted' }, ` ${extra}`));
