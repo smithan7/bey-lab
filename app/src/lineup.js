@@ -3,12 +3,14 @@ import { comboParts, isLegalDeck } from './combo.js';
 import { pairingDistribution, pairingScores } from './matchups.js';
 import { matchWinPoint, matchWinPosterior } from './sim.js';
 import { matchupStats } from './stats.js';
-import { makeRng } from './rng.js';
+import { makeRng, shuffle } from './rng.js';
 
 export const SCREEN_MATCHES = 1000;
 export const REFINE_OUTER = 200;
 export const REFINE_INNER = 50;
 export const TOP_N = 5;
+// Cap on field decks simulated per candidate deck, so ranking stays fast as the field grows.
+export const MAX_FIELD_DECKS = 10;
 // A fixed lead is only recommended if it beats random order by at least this much.
 export const LEAD_MIN_GAIN = 0.02;
 const BLOCKED_N = 5;
@@ -42,6 +44,13 @@ export function fieldCombos(state) {
 // Every 3-subset of the field, legal or not. Fewer than 3 combos gives [].
 export function fieldDecks(fieldIds) {
   return triples(fieldIds);
+}
+
+// All field decks when there are at most MAX_FIELD_DECKS, else a seeded sample of that many
+// (the order of the sample comes from rng, so it is deterministic for a given seed).
+export function sampleFieldDecks(fieldIds, rng) {
+  const all = triples(fieldIds);
+  return all.length <= MAX_FIELD_DECKS ? all : shuffle(rng, all).slice(0, MAX_FIELD_DECKS);
 }
 
 export function enumerateLegalDecks(candidateIds, combosById) {
@@ -125,6 +134,7 @@ export function decideDiffers(ranked, { outer = REFINE_OUTER } = {}) {
 
 /**
  * Ranks legal decks of owned, tested combos against the active field.
+ * Field decks: every 3-subset of the field, sampled down to MAX_FIELD_DECKS (seeded by rng).
  * ranked: the TOP_N decks by screened first-to-5 P(win), refined, sorted by refined
  *   best.target5.p descending. `lead` is an index into `deck`, or null when no lead beats
  *   random order by LEAD_MIN_GAIN (then best equals randomOrder). `differs` (same on
@@ -139,7 +149,7 @@ export function rankLineups(state, parts, {
   const combosById = byIdMap(state.combos);
   const battles = state.battles ?? [];
   const field = fieldCombos(state);
-  const fds = fieldDecks(field);
+  const fds = sampleFieldDecks(field, rng);
   const fieldLegal = isLegalDeck(field.map((id) => combosById.get(id)).filter(Boolean));
 
   const legal = enumerateLegalDecks(candidateCombos(state, parts), combosById);

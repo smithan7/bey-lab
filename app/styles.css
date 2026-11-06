@@ -142,3 +142,5 @@ button:disabled { opacity: .5; }
 .check { display: flex; align-items: center; gap: 12px; min-height: 56px; }
 .check input { width: 24px; height: 24px; }
 .row-btns { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.updating { font-weight: 600; color: var(--text); }
+.stale { opacity: 0.55; }

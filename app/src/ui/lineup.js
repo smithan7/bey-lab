@@ -20,8 +20,15 @@ export function lineupKey(state, parts) {
   return hashStr(`${bats}#${JSON.stringify(state.field)}#${state.combos.map((c) => c.id).join(',')}#${owned}`);
 }
 
-let worker;
+let worker = null;
 let cache = { key: null, promise: null };
+let inflight = null; // { key, cancel } while a worker run is in progress
+let last = null; // the most recent completed { key, result, state, parts }
+
+// Thrown to callers of a run that a newer key replaced; they should ask getLineup again.
+export class Superseded extends Error {
+  constructor() { super('superseded by newer data'); this.name = 'Superseded'; }
+}
 
 function runWorker(state, parts, seed) {
   worker ??= new Worker(new URL('../lineup-worker.js', import.meta.url), { type: 'module' });
@@ -32,26 +39,46 @@ function runWorker(state, parts, seed) {
       if (e.data?.type === 'ranked') { cleanup(); resolve(e.data.result); }
       else if (e.data?.type === 'error') { cleanup(); reject(new Error(e.data.message)); }
     };
-    const onErr = (e) => { cleanup(); worker = null; reject(new Error(e.message || 'Lineup worker failed')); };
+    const onErr = (e) => { cleanup(); if (worker === w) worker = null; reject(new Error(e.message || 'Lineup worker failed')); };
     w.addEventListener('message', onMsg);
     w.addEventListener('error', onErr);
+    // A newer key stops this run outright: the worker is terminated and replaced on the next run.
+    inflight = { key: seed, cancel: () => { cleanup(); w.terminate(); if (worker === w) worker = null; reject(new Superseded()); } };
     const { photos, ...plain } = state;
     w.postMessage({ type: 'rank', state: JSON.parse(JSON.stringify(plain)), parts: JSON.parse(JSON.stringify(parts)), seed });
   });
 }
 
-// Cached per data key. Runs of the one worker are serialised so replies can't cross.
-let chain = Promise.resolve();
+// Cached per data key. One run at a time: a request for a new key terminates any stale run
+// rather than queueing behind it.
 export function getLineup(ctx) {
   const state = ctx.store.state();
   const parts = ctx.parts;
   const key = lineupKey(state, parts);
   if (cache.key === key) return cache.promise;
-  const promise = chain.catch(() => {}).then(() => runWorker(state, parts, key)).then((result) => ({ result, state, parts }));
-  chain = promise;
+  if (inflight && inflight.key !== key) { const { cancel } = inflight; inflight = null; cancel(); }
+  const promise = runWorker(state, parts, key).then((result) => {
+    last = { key, result, state, parts };
+    return { result, state, parts };
+  });
+  const done = () => { if (inflight?.key === key) inflight = null; };
+  promise.then(done, done);
   cache = { key, promise };
   promise.catch(() => { if (cache.promise === promise) cache = { key: null, promise: null }; });
   return promise;
+}
+
+// Waits for the lineup of the current data, following any newer run that supersedes it.
+// onStale(previous) is called first when an older completed result can be shown meanwhile.
+export function watchLineup(ctx, { isLive, onStale, onResult, onError }) {
+  const key = lineupKey(ctx.store.state(), ctx.parts);
+  if (last && last.key !== key) onStale?.(last);
+  const attempt = () => getLineup(ctx).then((r) => { if (isLive()) onResult(r); }, (e) => {
+    if (!isLive()) return;
+    if (e instanceof Superseded) attempt();
+    else onError(e);
+  });
+  attempt();
 }
 
 const pctText = (r) => `${fmtPct(r.p)} [${fmtPct(r.lo)}–${fmtPct(r.hi)}]`;
@@ -63,19 +90,31 @@ export const tab = {
     const status = h('p', { class: 'muted', role: 'status' }, 'Working out the best deck…');
     el.append(status);
     const stillHere = () => status.isConnected;
-    getLineup(ctx).then(({ result, state, parts }) => {
-      if (!stillHere()) return;
-      el.replaceChildren();
-      renderResult(ctx, el, result, state, parts);
-    }, (e) => {
-      if (!stillHere()) return;
-      status.className = 'error';
-      status.textContent = `Could not compute the lineup: ${e.message}`;
+    watchLineup(ctx, {
+      isLive: stillHere,
+      // While recomputing, keep the previous result on screen, clearly marked as updating.
+      onStale: ({ result, state, parts }) => {
+        status.textContent = 'Updating…';
+        status.classList.add('updating');
+        const prev = h('div', { class: 'stale', 'aria-busy': 'true' });
+        renderResult(ctx, prev, result, state, parts, { stale: true });
+        el.append(prev);
+      },
+      onResult: ({ result, state, parts }) => {
+        el.replaceChildren(status);
+        status.hidden = true;
+        renderResult(ctx, el, result, state, parts);
+      },
+      onError: (e) => {
+        el.replaceChildren(status);
+        status.className = 'error';
+        status.textContent = `Could not compute the lineup: ${e.message}`;
+      },
     });
   },
 };
 
-function renderResult(ctx, el, result, state, parts) {
+function renderResult(ctx, el, result, state, parts, { stale = false } = {}) {
   const partsById = new Map(parts.map((p) => [p.id, p]));
   const byId = new Map(state.combos.map((c) => [c.id, c]));
   const label = (id) => comboLabel(byId.get(id), partsById);
@@ -104,7 +143,7 @@ function renderResult(ctx, el, result, state, parts) {
       const list = h('ol', {});
       for (const id of r.deck) {
         const li = h('li', {}, label(id));
-        if (i === 0 && !activeField.has(id)) {
+        if (i === 0 && !stale && !activeField.has(id)) {
           const b = h('button', { type: 'button' }, 'Add to field');
           b.addEventListener('click', async () => {
             if (b.disabled) return;

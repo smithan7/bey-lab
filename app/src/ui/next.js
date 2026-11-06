@@ -4,7 +4,7 @@ import { suggestTests } from '../suggest.js';
 import { makeRng } from '../rng.js';
 import { h } from './pickers.js';
 import { toast } from './log.js';
-import { getLineup } from './lineup.js';
+import { watchLineup } from './lineup.js';
 
 const KIND = { baseline: 'Baseline', blocking: 'Blocking', stage1: 'Screen', stage2: 'Finalist', fix: 'Fix', narrow: 'Narrow' };
 
@@ -57,8 +57,7 @@ export const tab = {
   render(ctx, el) {
     const status = h('p', { class: 'muted', role: 'status' }, 'Working out what to test next…');
     el.append(status);
-    getLineup(ctx).then(({ result, state, parts }) => {
-      if (!status.isConnected) return;
+    const onResult = ({ result, state, parts }) => {
       el.replaceChildren();
       const partsById = new Map(parts.map((p) => [p.id, p]));
       const list = suggestTests(state, parts, result, { rng: makeRng(11) });
@@ -88,10 +87,14 @@ export const tab = {
         row.append(bar);
         el.append(row);
       });
-    }, (e) => {
-      if (!status.isConnected) return;
-      status.className = 'error';
-      status.textContent = `Could not compute suggestions: ${e.message}`;
+    };
+    watchLineup(ctx, {
+      isLive: () => status.isConnected,
+      onResult,
+      onError: (e) => {
+        status.className = 'error';
+        status.textContent = `Could not compute suggestions: ${e.message}`;
+      },
     });
   },
 };

@@ -7,7 +7,7 @@ import { comboId, comboLabel, isLegalDeck } from '../src/combo.js';
 import { makeRng } from '../src/rng.js';
 import {
   candidateCombos, fieldCombos, fieldDecks, enumerateLegalDecks, missingPairings,
-  rankLineups, comboLeaderboard, decideDiffers, SCREEN_MATCHES, REFINE_OUTER, REFINE_INNER, TOP_N, LEAD_MIN_GAIN,
+  rankLineups, comboLeaderboard, decideDiffers, sampleFieldDecks, MAX_FIELD_DECKS, SCREEN_MATCHES, REFINE_OUTER, REFINE_INNER, TOP_N, LEAD_MIN_GAIN,
 } from '../src/lineup.js';
 
 const catalog = normalizeCatalog(JSON.parse(readFileSync(new URL('../data/parts-catalog.json', import.meta.url), 'utf8')));
@@ -24,6 +24,20 @@ const FAST = { screenMatches: 200, refineOuter: 40, refineInner: 20 };
 
 test('constants match the global constraints', () => {
   assert.deepEqual([SCREEN_MATCHES, REFINE_OUTER, REFINE_INNER, TOP_N, LEAD_MIN_GAIN], [1000, 200, 50, 5, 0.02]);
+});
+
+test('sampleFieldDecks: all decks up to MAX_FIELD_DECKS, a seeded sample beyond', () => {
+  assert.equal(MAX_FIELD_DECKS, 10);
+  const five = ['a', 'b', 'c', 'd', 'e'];
+  assert.deepEqual(sampleFieldDecks(five, makeRng(1)), fieldDecks(five));
+  const eight = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  const all = fieldDecks(eight).map((d) => d.join());
+  const s1 = sampleFieldDecks(eight, makeRng(3));
+  assert.equal(s1.length, MAX_FIELD_DECKS);
+  assert.equal(new Set(s1.map((d) => d.join())).size, MAX_FIELD_DECKS);
+  for (const d of s1) assert.ok(all.includes(d.join()), d.join());
+  assert.deepEqual(sampleFieldDecks(eight, makeRng(3)), s1);
+  assert.notDeepEqual(sampleFieldDecks(eight, makeRng(4)), s1);
 });
 
 test('fieldDecks: one deck for 3, all 3-subsets for more, none for fewer', () => {
