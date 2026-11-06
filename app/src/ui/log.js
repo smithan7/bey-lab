@@ -140,11 +140,20 @@ export const tab = {
     const draw = act('Draw', async () => {
       if (busy) return;
       if (!last.left || !last.right) { errBox.textContent = 'Pick both combos first.'; return; }
+      // Busy while the dialog is open, so a double tap can't open two dialogs or log twice.
+      busy = true;
+      for (const x of acts) x.disabled = true;
       const input = h('input', { type: 'text', class: 'search', placeholder: 'Note (optional)', maxlength: '200' });
-      const choice = await ctx.showDialog({
-        title: 'Log a draw', body: input,
-        actions: [{ label: 'Cancel' }, { label: 'Log draw', kind: 'primary' }],
-      });
+      let choice;
+      try {
+        choice = await ctx.showDialog({
+          title: 'Log a draw', body: input,
+          actions: [{ label: 'Cancel' }, { label: 'Log draw', kind: 'primary' }],
+        });
+      } finally {
+        busy = false;
+        for (const x of acts) x.disabled = false;
+      }
       if (choice === 'Log draw') await record('draw', null, 0, input.value.trim());
     });
     const undo = act('Undo last battle', async () => {
