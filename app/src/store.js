@@ -77,7 +77,12 @@ export class IdbBackend {
       tx.oncomplete = () => resolve(result);
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error ?? new Error('Transaction aborted'));
-      result = fn(tx);
+      try {
+        result = fn(tx);
+      } catch (e) {
+        try { tx.abort(); } catch { /* already finished */ }
+        reject(e);
+      }
     });
   }
   async getAll(name) {
@@ -175,6 +180,7 @@ function validateImport(obj) {
       throw new ImportError('A battle record is malformed (needs left, right, winner and points).');
     }
   }
+  for (const k of Object.keys(obj.overrides)) if (!k) throw new ImportError('An override is missing its part id.');
   for (const f of obj.field) if (!isObj(f) || !f.comboId) throw new ImportError('A field entry is missing its combo id.');
   for (const [k, v] of Object.entries(obj.overrides)) if (!isObj(v)) throw new ImportError(`Override for ${k} is malformed.`);
   for (const p of obj.photos ?? []) {
@@ -255,8 +261,11 @@ export async function createStore(backend) {
       return commit(next, () => backend.put('userParts', updated));
     },
 
-    async mergePart(fromId, intoId) {
+    async mergePart(fromId, intoId, { knownPartIds } = {}) {
       if (fromId === intoId) return snap();
+      if (knownPartIds && !knownPartIds.has(intoId) && !current.userParts.some((p) => p.id === intoId)) {
+        throw new Error('The part to merge into is not a known part.');
+      }
       const sw = (v) => (v === fromId ? intoId : v);
       const idMap = new Map();
       const combos = new Map();
@@ -277,6 +286,9 @@ export async function createStore(backend) {
       }
       const remap = (id) => idMap.get(id) ?? id;
       const battles = current.battles.map((b) => ({ ...b, left: remap(b.left), right: remap(b.right) }));
+      if (battles.some((b) => b.left === b.right)) {
+        throw new Error("These two combos battled each other, so they can't be the same part — merge cancelled.");
+      }
       const field = new Map();
       for (const f of current.field) {
         const id = remap(f.comboId);
@@ -293,6 +305,7 @@ export async function createStore(backend) {
         combos: [...combos.values()],
         battles,
         field: [...field.values()],
+        photos: current.photos.map((ph) => (ph.partId === fromId ? { ...ph, partId: intoId } : ph)),
       });
     },
 
@@ -353,10 +366,13 @@ export async function createStore(backend) {
     },
 
     // Photo rule: a file with "photos" replaces local photos with them; a file without
-    // the key replaces local photos with none. meta (e.g. seeded) is kept.
+    // the key keeps local photos (dropping any attached to a user part the file lacks). meta (e.g. seeded) is kept.
     async importData(obj) {
       validateImport(obj);
-      const photos = (obj.photos ?? []).map(({ dataUrl, ...rest }) => ({ ...rest, blob: dataUrlToBlob(dataUrl) }));
+      const knownParts = (id) => obj.userParts.some((p) => p.id === id) || !String(id).startsWith('user:');
+      const photos = obj.photos === undefined
+        ? current.photos.filter((ph) => knownParts(ph.partId))
+        : obj.photos.map(({ dataUrl, ...rest }) => ({ ...rest, blob: dataUrlToBlob(dataUrl) }));
       return replace({
         userParts: clone(obj.userParts),
         overrides: clone(obj.overrides),
@@ -368,5 +384,16 @@ export async function createStore(backend) {
       });
     },
   };
-  return store;
+  // Serialize every method so read -> build -> write -> adopt never interleaves.
+  let tail = Promise.resolve();
+  const queued = { state: store.state };
+  for (const [name, fn] of Object.entries(store)) {
+    if (name === 'state') continue;
+    queued[name] = (...args) => {
+      const run = tail.then(() => fn(...args));
+      tail = run.catch(() => {});
+      return run;
+    };
+  }
+  return queued;
 }

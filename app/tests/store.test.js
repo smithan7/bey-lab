@@ -117,3 +117,47 @@ test('createStore surfaces backend failure', async () => {
   be.open = async () => { throw new Error('denied'); };
   await assert.rejects(createStore(be), StorageUnavailableError);
 });
+
+test('import of a no-photos file keeps existing photos', async () => {
+  const s = await createStore(new MemoryBackend());
+  await s.addPhoto('blade:a', new Blob([new Uint8Array([9])], { type: 'image/png' }), 1, 1);
+  const file = await s.exportData({ withPhotos: false });
+  await s.importData(file);
+  assert.equal(s.state().photos.length, 1);
+});
+
+test('concurrent calls stay consistent with the backend', async () => {
+  const be = new MemoryBackend();
+  const s = await createStore(be);
+  const bad = s.addBattle(battle('0', 'a', 'a', 0));
+  await Promise.all([s.addBattle(battle('1', 'a', 'b', 1)), s.addBattle(battle('2', 'a', 'b', 2)), bad.catch(() => {})]);
+  assert.equal(s.state().battles.length, 2);
+  assert.equal((await be.getAll('battles')).length, 2);
+});
+
+test('mergePart rejects when merged combos fought each other', async () => {
+  const s = await createStore(new MemoryBackend());
+  const a = single('blade:a', 'ratchet:3-60', 'bit:x');
+  const b = single('blade:a', 'ratchet:3-60', 'bit:y');
+  await s.upsertCombo(a); await s.upsertCombo(b);
+  await s.addBattle(battle('1', a.id, b.id, 1));
+  const before = s.state();
+  await assert.rejects(s.mergePart('bit:x', 'bit:y'), { message: "These two combos battled each other, so they can't be the same part — merge cancelled." });
+  assert.deepEqual(s.state(), before);
+});
+
+test('mergePart repoints photos and checks intoId', async () => {
+  const s = await createStore(new MemoryBackend());
+  await s.addUserPart({ id: 'user:p', kind: 'bit', name: 'P' });
+  await s.addPhoto('user:p', new Blob([new Uint8Array([1])]), 1, 1);
+  await assert.rejects(s.mergePart('user:p', 'bit:nope', { knownPartIds: new Set(['bit:ok']) }));
+  const st = await s.mergePart('user:p', 'bit:ok', { knownPartIds: new Set(['bit:ok']) });
+  assert.equal(st.photos[0].partId, 'bit:ok');
+});
+
+test('importData requires ids on records', async () => {
+  const s = await createStore(new MemoryBackend());
+  const good = await s.exportData();
+  await assert.rejects(s.importData({ ...good, battles: [{ left: 'a', right: 'b', winner: 'left', points: 1 }] }), ImportError);
+  await assert.rejects(s.importData({ ...good, field: [{ active: true }] }), ImportError);
+});
