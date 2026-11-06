@@ -68,8 +68,37 @@ test('matchupStats rhWr extras', () => {
   assert.equal(s.eWin, 2.5);
   assert.equal(s.eLoss, 1.0);
   assert.ok(Math.abs(s.evCI[0] + 1.256) < 0.01 && Math.abs(s.evCI[1] - 0.856) < 0.01);
-  assert.ok(Math.abs(s.race[5] - 0.35) < 0.03, `race5 ${s.race[5]}`);
-  assert.ok(s.race[7] < s.race[5]);
+  const r5 = s.race[5], r7 = s.race[7];
+  assert.ok(r5.lo <= r5.p && r5.p <= r5.hi && r5.lo >= 0 && r5.hi <= 1, JSON.stringify(r5));
+  assert.ok(Math.abs(r5.p - 0.37) < 0.05, `race5 ${r5.p}`);
+  assert.ok(r5.hi - r5.lo > 0.3, `interval too narrow ${JSON.stringify(r5)}`);
+  assert.ok(r7.p < r5.p);
+});
+
+test('race carries posterior uncertainty, not resampled certainty', () => {
+  // Two +3s used to read 100%: resampling observed scores can never lose.
+  const s = matchupStats([3, 3], { rng: makeRng(5) });
+  assert.ok(s.race[5].p < 0.95, `p ${s.race[5].p}`);
+  assert.ok(s.race[5].lo < 0.5, `lo ${s.race[5].lo}`);
+  assert.ok(s.race[5].hi > 0.9, `hi ${s.race[5].hi}`);
+});
+
+test('race is unknown (null) with n < 2, no decisive battles, or no budget', () => {
+  assert.deepEqual(matchupStats([], { rng: makeRng(1) }).race, { 5: null, 7: null });
+  assert.deepEqual(matchupStats([3], { rng: makeRng(1) }).race, { 5: null, 7: null });
+  assert.deepEqual(matchupStats([0, 0, 0], { rng: makeRng(1) }).race, { 5: null, 7: null });
+  assert.deepEqual(matchupStats(A.rhWr, { rng: makeRng(1), raceSims: 0 }).race, { 5: null, 7: null });
+});
+
+test('raceSims is the total budget across both races', () => {
+  let calls = 0;
+  const base = makeRng(9);
+  const counting = () => { calls++; return base(); };
+  matchupStats(A.rhWr, { rng: counting, draws: 0, raceSims: 0 });
+  const zero = calls;
+  calls = 0;
+  matchupStats(A.rhWr, { rng: counting, draws: 0, raceSims: 400 });
+  assert.ok(calls > zero && calls < 400 * 7 * 6, `rng calls ${calls}`);
 });
 
 test('matchupStats degenerate', () => {

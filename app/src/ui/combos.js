@@ -15,6 +15,8 @@ const FINISH_NAMES = [['xtreme', 'Xtreme'], ['pocket', 'Pocket'], ['burst', 'Bur
 
 export const fmtEv = (v) => `${Math.round(Math.abs(v) * 100) === 0 || v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}`;
 export const fmtPct = (v) => `${Math.round(v * 100)}%`;
+// Race to N with its 95% posterior interval; null (n < 2 or no decisive battles) is unknown.
+export const fmtRace = (r) => (r ? `${fmtPct(r.p)} [${fmtPct(r.lo)}–${fmtPct(r.hi)}]` : 'unknown');
 
 // Fixed-seed stats cached by (combo, opponent, score content), so re-renders are cheap and stable.
 const cache = new Map();
@@ -39,8 +41,8 @@ function statCells(tr, st) {
   td(String(st.n));
   td(`${st.wins}-${st.draws}-${st.losses}`);
   td(`${fmtEv(st.ev)} [${st.n >= 2 ? `${fmtEv(st.evCI[0])}, ${fmtEv(st.evCI[1])}` : 'n/a'}]`);
-  td(fmtPct(st.race[5]));
-  td(fmtPct(st.race[7]));
+  td(fmtRace(st.race[5]));
+  td(fmtRace(st.race[7]));
   td(fmtPct(st.pEvNeg));
 }
 

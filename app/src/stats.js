@@ -20,18 +20,49 @@ export function tCrit95(df) {
   return df <= 60 ? 2.0 : 1.96;
 }
 
-function simulateRace(scores, N, sims, rng) {
-  if (!scores.some(s => s !== 0)) return 0.5; // no decisive battles: undefined, non-NaN
-  let wins = 0;
-  for (let i = 0; i < sims; i++) {
-    let me = 0, them = 0;
-    while (me < N && them < N) {
-      const s = scores[Math.floor(rng() * scores.length)];
-      if (s > 0) me += s; else if (s < 0) them -= s;
+// Exact P(we reach N first) for one outcome distribution p over OUTCOMES. Draws (0) only
+// delay the race, so it is solved on the decisive outcomes, conditioned on a decisive battle.
+// Returns null when p has no decisive mass.
+export function raceWinProb(p, N) {
+  const dec = [];
+  let mass = 0;
+  for (let k = 0; k < OUTCOMES.length; k++) if (OUTCOMES[k] !== 0 && p[k] > 0) { dec.push([OUTCOMES[k], p[k]]); mass += p[k]; }
+  if (!(mass > 0)) return null;
+  // f[me][them], filled from the end of the race backwards.
+  const f = Array.from({ length: N }, () => new Float64Array(N));
+  for (let me = N - 1; me >= 0; me--) {
+    for (let them = N - 1; them >= 0; them--) {
+      let v = 0;
+      for (const [s, q] of dec) {
+        if (s > 0) v += q * (me + s >= N ? 1 : f[me + s][them]);
+        else if (them - s < N) v += q * f[me][them - s];
+      }
+      f[me][them] = v / mass;
     }
-    if (me >= N) wins++;
   }
-  return wins / sims;
+  return f[0][0];
+}
+
+const quantile = (sorted, q) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1))];
+
+// Race to 5 and 7 with posterior uncertainty: each of `sims` Dirichlet draws (counts + 1/7)
+// gives an outcome distribution whose race-win probability is solved exactly; we report the
+// mean and the 2.5/97.5 percentiles. Unknown (null) with fewer than 2 battles or none decisive.
+function raceStats(scores, sims, rng) {
+  const unknown = { 5: null, 7: null };
+  if (scores.length < 2 || !scores.some(s => s !== 0) || sims < 1) return unknown;
+  const alphas = outcomeCounts(scores).map(c => c + 1 / 7);
+  const res = { 5: [], 7: [] };
+  for (let i = 0; i < sims; i++) {
+    const p = dirichlet(rng, alphas);
+    for (const N of [5, 7]) { const w = raceWinProb(p, N); if (w != null) res[N].push(w); }
+  }
+  const out = {};
+  for (const N of [5, 7]) {
+    const v = res[N].sort((a, b) => a - b);
+    out[N] = v.length ? { p: v.reduce((a, b) => a + b, 0) / v.length, lo: quantile(v, 0.025), hi: quantile(v, 0.975) } : null;
+  }
+  return out;
 }
 
 export function matchupStats(scores, { rng, draws = 20000, raceSims = 20000 } = {}) {
@@ -59,9 +90,8 @@ export function matchupStats(scores, { rng, draws = 20000, raceSims = 20000 } = 
     }
     pEvNeg = draws ? neg / draws : 0.5;
   }
-  const race = n
-    ? { 5: simulateRace(scores, 5, raceSims, rng), 7: simulateRace(scores, 7, raceSims, rng) }
-    : { 5: 0.5, 7: 0.5 };
+  // raceSims: total posterior draws for the races; each draw is solved for both targets.
+  const race = raceStats(scores, raceSims, rng);
   return {
     n, wins, draws: nDraws, losses,
     pWin: n ? wins / n : 0, pWinCI: wilson(wins, n),
