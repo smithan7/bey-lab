@@ -1,6 +1,6 @@
 // Persistent store: state, backends (memory / IndexedDB), export/import. Runs in Node and the browser.
 // IndexedDB is only touched when IdbBackend.open() is called.
-import { comboId } from './combo.js';
+import { comboId, validateCombo } from './combo.js';
 
 export const STORES = ['userParts', 'overrides', 'combos', 'battles', 'field', 'photos', 'meta'];
 const KEY_PATH = { field: 'comboId', overrides: 'partId' };
@@ -261,7 +261,10 @@ export async function createStore(backend) {
       return commit(next, () => backend.put('userParts', updated));
     },
 
-    async mergePart(fromId, intoId, { knownPartIds } = {}) {
+    // partsById (optional): the parts before the merge; when given, every repointed combo is
+    // re-validated. A ratchet next to a now ratchet-integrated bit is dropped; any other
+    // invalid combo cancels the merge. Ownership of fromId carries over to intoId.
+    async mergePart(fromId, intoId, { knownPartIds, partsById } = {}) {
       if (fromId === intoId) return snap();
       if (knownPartIds && !knownPartIds.has(intoId) && !current.userParts.some((p) => p.id === intoId)) {
         throw new Error('The part to merge into is not a known part.');
@@ -280,6 +283,11 @@ export async function createStore(backend) {
         }
         n.ratchet = n.ratchet == null ? n.ratchet : sw(n.ratchet);
         n.bit = sw(n.bit);
+        if (partsById) {
+          if (n.ratchet != null && partsById.get(n.bit)?.ratchetIntegrated) n.ratchet = null;
+          const err = validateCombo(n, partsById);
+          if (err) throw new Error(`After the merge a combo would be invalid (${err}) — merge cancelled.`);
+        }
         n.id = comboId(n);
         idMap.set(c.id, n.id);
         if (!combos.has(n.id)) combos.set(n.id, n);
@@ -297,7 +305,8 @@ export async function createStore(backend) {
           ? { ...prev, active: prev.active || f.active, core: prev.core || f.core }
           : { ...f, comboId: id });
       }
-      const { [fromId]: _drop, ...overrides } = current.overrides;
+      const { [fromId]: dropped, ...overrides } = current.overrides;
+      if (dropped?.owned) overrides[intoId] = { ...overrides[intoId], owned: true };
       return replace({
         ...current,
         userParts: current.userParts.filter((p) => p.id !== fromId),

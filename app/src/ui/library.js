@@ -286,7 +286,7 @@ function openMergePicker(ctx, from) {
         h('div', { class: 'row-btns' },
           btn(`Confirm merge into ${p.displayName}`, async () => {
             try {
-              await ctx.store.mergePart(from.id, p.id, { knownPartIds: known });
+              await ctx.store.mergePart(from.id, p.id, { knownPartIds: known, partsById: ctx.partsById });
             } catch (e) { pending = null; msg.textContent = e.message; fill(q); return; }
             await ctx.refresh();
             toast(`Merged into ${p.displayName}`);

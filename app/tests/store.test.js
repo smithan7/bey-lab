@@ -161,3 +161,47 @@ test('importData requires ids on records', async () => {
   await assert.rejects(s.importData({ ...good, battles: [{ left: 'a', right: 'b', winner: 'left', points: 1 }] }), ImportError);
   await assert.rejects(s.importData({ ...good, field: [{ active: true }] }), ImportError);
 });
+
+test('mergePart carries ownership to the merged-into part', async () => {
+  const s = await createStore(new MemoryBackend());
+  await s.addUserPart({ id: 'user:b', kind: 'bit', name: 'B' });
+  await s.setOverride('user:b', { owned: true });
+  await s.setOverride('bit:ok', { preferredName: 'Okay' });
+  const st = await s.mergePart('user:b', 'bit:ok');
+  assert.deepEqual(st.overrides['bit:ok'], { preferredName: 'Okay', owned: true });
+  // An unowned source leaves the target's ownership alone.
+  await s.addUserPart({ id: 'user:c', kind: 'bit', name: 'C' });
+  await s.setOverride('bit:z', { owned: false });
+  const st2 = await s.mergePart('user:c', 'bit:z');
+  assert.deepEqual(st2.overrides['bit:z'], { owned: false });
+});
+
+const partsMap = (list) => new Map(list.map((p) => [p.id, p]));
+const P = partsMap([
+  { id: 'blade:a', kind: 'blade' }, { id: 'ratchet:3-60', kind: 'ratchet' },
+  { id: 'user:bit', kind: 'bit' }, { id: 'bit:flat', kind: 'bit' },
+  { id: 'bit:integrated', kind: 'bit', ratchetIntegrated: true }, { id: 'user:rib', kind: 'bit', ratchetIntegrated: true },
+]);
+
+test('mergePart drops the ratchet when the bit becomes ratchet-integrated', async () => {
+  const s = await createStore(new MemoryBackend());
+  const a = single('blade:a', 'ratchet:3-60', 'user:bit');
+  const o = single('blade:a', 'ratchet:3-60', 'bit:flat');
+  await s.upsertCombo(a); await s.upsertCombo(o);
+  await s.setFieldEntry({ comboId: a.id, active: true, core: false });
+  await s.addBattle(battle('1', a.id, o.id, 1));
+  const st = await s.mergePart('user:bit', 'bit:integrated', { partsById: P });
+  const fixed = single('blade:a', null, 'bit:integrated');
+  assert.ok(st.combos.some((c) => c.id === fixed.id && c.ratchet === null));
+  assert.equal(st.battles[0].left, fixed.id);
+  assert.equal(st.field[0].comboId, fixed.id);
+});
+
+test('mergePart rejects a merge that leaves a combo invalid', async () => {
+  const s = await createStore(new MemoryBackend());
+  const a = single('blade:a', null, 'user:rib');
+  await s.upsertCombo(a);
+  const before = s.state();
+  await assert.rejects(s.mergePart('user:rib', 'bit:flat', { partsById: P }), /merge cancelled/);
+  assert.deepEqual(s.state(), before);
+});
