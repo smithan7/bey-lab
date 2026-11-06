@@ -46,6 +46,29 @@ function statCells(tr, st) {
   td(fmtPct(st.pEvNeg));
 }
 
+const pctCI = (p, ci) => `${fmtPct(p)} [${fmtPct(ci[0])}–${fmtPct(ci[1])}]`;
+
+// Tap-to-expand detail for one pairing: P(win)/P(lose) with Wilson 95% intervals,
+// conditional points, and that pairing's own finish chips.
+function detailRow(st, br, title) {
+  const tr = h('tr', { class: 'detail', hidden: '' });
+  const box = h('div', { class: 'detail-box' });
+  box.append(h('p', { class: 'detail-title' }, title));
+  const dl = h('dl', { class: 'kv' });
+  const kv = (k, v) => dl.append(h('dt', {}, k), h('dd', {}, v));
+  kv('P(win) [95%]', pctCI(st.pWin, st.pWinCI));
+  kv('P(lose) [95%]', pctCI(st.pLose, st.pLoseCI));
+  kv('E[points | win]', st.wins ? fmtEv(st.eWin) : 'n/a — no wins');
+  kv('E[points | loss]', st.losses ? fmtEv(-st.eLoss) : 'n/a — no losses');
+  box.append(dl);
+  box.append(h('div', { class: 'chips' },
+    h('span', { class: 'chip win' }, finishText('Wins', br.won)),
+    h('span', { class: 'chip loss' }, finishText('Losses', br.lost)),
+    ...(br.draws ? [h('span', { class: 'chip' }, `${br.draws}× Draw`)] : [])));
+  tr.append(h('td', { colspan: '7' }, box));
+  return tr;
+}
+
 function buildCard(ctx, state, c, fieldIds, topIds) {
   const { partsById } = ctx;
   const battles = state.battles;
@@ -65,10 +88,25 @@ function buildCard(ctx, state, c, fieldIds, topIds) {
   const body = h('tbody');
   for (const o of opps) {
     const scores = pairingScores(battles, c.id, o);
-    const tr = h('tr', {}, h('th', { scope: 'row' }, comboLabel(state.combos.find((x) => x.id === o), partsById)));
-    if (!scores.length) tr.append(h('td', { colspan: '6', class: 'muted' }, 'unknown — not tested'));
-    else statCells(tr, cachedStats(`${c.id}|${o}`, scores));
-    body.append(tr);
+    const oppLabel = comboLabel(state.combos.find((x) => x.id === o), partsById);
+    if (!scores.length) {
+      const tr = h('tr', {}, h('th', { scope: 'row' }, oppLabel));
+      tr.append(h('td', { colspan: '6', class: 'muted' }, 'unknown — not tested'));
+      body.append(tr);
+      continue;
+    }
+    const st = cachedStats(`${c.id}|${o}`, scores);
+    const btn = h('button', { type: 'button', class: 'rowtoggle', 'aria-expanded': 'false' }, h('span', { class: 'caret', 'aria-hidden': 'true' }, '▸'), h('span', {}, oppLabel));
+    const tr = h('tr', { class: 'expandable' }, h('th', { scope: 'row' }, btn));
+    statCells(tr, st);
+    const detail = detailRow(st, finishBreakdown(battles, c.id, o), `${comboLabel(c, partsById)} vs ${oppLabel}`);
+    btn.addEventListener('click', () => {
+      const open = detail.hidden;
+      detail.hidden = !open;
+      btn.setAttribute('aria-expanded', String(open));
+      btn.firstChild.textContent = open ? '▾' : '▸';
+    });
+    body.append(tr, detail);
   }
   let all = [];
   for (const o of opps) all = all.concat(pairingScores(battles, c.id, o));

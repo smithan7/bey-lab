@@ -97,6 +97,13 @@ button:disabled { opacity: .5; }
 .rtable th, .rtable td { padding: 8px 8px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .rtable tbody th { white-space: normal; min-width: 160px; font-weight: 500; }
 .rtable .overall th, .rtable .overall td { font-weight: 700; }
+.rowtoggle { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font-weight: 500; background: transparent; border: 0; padding: 0 4px; }
+.rowtoggle .caret { font-size: 14px; width: 14px; }
+.rtable tr.detail > td { white-space: normal; background: var(--bg); }
+.detail-title { margin: 4px 0 8px; font-weight: 600; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .chip { border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; font-size: 14px; background: var(--bg); }
 .chip.flag { border-color: var(--danger); color: var(--danger); font-weight: 600; }
