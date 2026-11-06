@@ -20,7 +20,9 @@ const withId = (c) => ({ ...c, id: comboId(c) });
 /**
  * options: { rng, draws, raceSims } are passed to the combo leaderboard (stage 2 only uses
  * its t-interval, so the defaults of 0 skip the Monte Carlo work).
- * Returns at most MAX_SUGGESTIONS of {kind, left, right, battles: 10, reason, replaces}.
+ * Returns at most MAX_SUGGESTIONS of {kind, left, right, battles: 10, reason, replaces, replacesInField}.
+ * replaces: the combo a fix stands in for. replacesInField: set only by field-clash fixes, to the
+ * active field combo that `left` can take the place of (null otherwise).
  */
 export function suggestTests(state, parts, lineupResult, { rng, draws = 0, raceSims = 0 } = {}) {
   const battles = state.battles ?? [];
@@ -40,13 +42,13 @@ export function suggestTests(state, parts, lineupResult, { rng, draws = 0, raceS
   const seen = new Set();
   const key = (a, b) => (a < b ? `${a}\n${b}` : `${b}\n${a}`);
 
-  function add(kind, left, right, reason, replaces = null) {
+  function add(kind, left, right, reason, replaces = null, replacesInField = null) {
     if (!left || !right || left.id === right.id || seen.has(key(left.id, right.id))) return false;
     seen.add(key(left.id, right.id));
     const rp = new Set(comboParts(right));
     const shared = [...new Set(comboParts(left))].filter((p) => rp.has(p));
     const note = shared.length ? ` (needs two of ${shared.map(name).join(', ')})` : '';
-    out.push({ kind, left, right, battles: BATTLES, reason: reason + note, replaces });
+    out.push({ kind, left, right, battles: BATTLES, reason: reason + note, replaces, replacesInField });
     return true;
   }
 
@@ -169,7 +171,7 @@ export function suggestTests(state, parts, lineupResult, { rng, draws = 0, raceS
   const battleCount = (id) => battles.filter((b) => b.left === id || b.right === id).length;
   for (const clash of deckClashes(fieldObjs)) {
     const fix = fixClash(clash);
-    if (fix) add('fix', fix.left, fix.right, fix.reason, fix.replaces);
+    if (fix) add('fix', fix.left, fix.right, fix.reason, fix.replaces, fix.replaces);
   }
 
   for (const f of fixes) add('fix', f.left, f.right, f.reason, f.replaces);

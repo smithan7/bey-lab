@@ -61,13 +61,28 @@ test('burst-risk fix swaps the bit on Pegasus Blast Pop Out', () => {
   assert.equal(fix.left.bit, 'bit:turbo');
   assert.equal(fix.left.ratchet, null);
   assert.equal(fix.replaces, seed.combos.find((c) => label(c) === 'Pegasus Blast 2-60 Pop Out (unverified)').id);
+  // Pop Out is not in the field, so this fix must not offer a field swap.
+  assert.ok(!fieldCombos(seed).includes(fix.replaces));
+  assert.equal(fix.replacesInField, null);
+});
+
+test('only field-clash fixes carry a field replacement', () => {
+  const field = fieldCombos(seed);
+  for (const s of sugg) {
+    if (s.replacesInField == null) continue;
+    assert.equal(s.kind, 'fix');
+    assert.ok(field.includes(s.replacesInField), 'replacesInField must be an active field combo');
+    assert.match(s.reason, /shares .* with another field combo/);
+  }
+  assert.ok(sugg.some((s) => s.replacesInField), 'the seed field clash fix should offer a swap');
 });
 
 test('field-illegal fix makes the field legal with owned parts', () => {
   const field = fieldCombos(seed);
   assert.equal(lineup.fieldLegal, false);
-  const fix = sugg.find((s) => s.kind === 'fix' && s.replaces && field.includes(s.replaces));
+  const fix = sugg.find((s) => s.kind === 'fix' && s.replacesInField);
   assert.ok(fix, 'no field fix');
+  assert.equal(fix.replacesInField, fix.replaces);
   const next = field.map((id) => (id === fix.replaces ? fix.left : seed.combos.find((c) => c.id === id)));
   assert.ok(isLegalDeck(next));
   assert.ok(fix.right && fieldCombos(seed).includes(fix.right.id));
@@ -142,6 +157,7 @@ test('ko-risk fix swaps the bit of Rocket Griffon', () => {
   assert.match(fix.reason, /^Rocket Griffon Hexa was knocked out \(Pocket or Xtreme\) in 4 of 10 battles — test a different bit\./);
   assert.notEqual(fix.left.bit, 'bit:hexa');
   assert.equal(validateCombo(fix.left, byId), null);
+  assert.equal(fix.replacesInField, null);
 });
 
 test('a zero-clash ratchet swap beats a clashing bit swap', () => {

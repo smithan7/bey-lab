@@ -17,13 +17,16 @@ async function start(ctx, s) {
 
 function swapInField(ctx, s) {
   const state = ctx.store.state();
-  const oldCombo = state.combos.find((c) => c.id === s.replaces);
-  const oldLabel = oldCombo ? comboLabel(oldCombo, ctx.partsById) : s.replaces;
+  const target = s.replacesInField;
+  const oldCombo = state.combos.find((c) => c.id === target);
+  const oldLabel = oldCombo ? comboLabel(oldCombo, ctx.partsById) : target;
   const fresh = s.left; // suggestTests puts the replacement combo on the left
   const newLabel = comboLabel(fresh, ctx.partsById);
+  const untested = !state.battles.some((b) => b.left === fresh.id || b.right === fresh.id);
+  const warn = untested ? ` ${newLabel} has no battles yet — the Lineup can't rank decks until it's tested against the field.` : '';
   return ctx.showDialog({
     title: 'Change your test field?',
-    body: `Take ${oldLabel} out of the field and add ${newLabel} in its place.`,
+    body: `Take ${oldLabel} out of the field and add ${newLabel} in its place.${warn}`,
     actions: [
       { label: 'Cancel' },
       {
@@ -32,13 +35,13 @@ function swapInField(ctx, s) {
           let step = 'nothing changed yet';
           try {
             const cur = ctx.store.state();
-            const entry = cur.field.find((f) => f.comboId === s.replaces);
+            const entry = cur.field.find((f) => f.comboId === target);
             const core = !!entry?.core;
             if (!cur.combos.some((c) => c.id === fresh.id)) await ctx.store.upsertCombo(fresh);
             step = `${newLabel} was created but is not in the field; ${oldLabel} is unchanged`;
             await ctx.store.setFieldEntry({ comboId: fresh.id, active: true, core });
             step = `${newLabel} is in the field, but ${oldLabel} is still active too`;
-            await ctx.store.setFieldEntry({ comboId: s.replaces, active: false, core: false });
+            await ctx.store.setFieldEntry({ comboId: target, active: false, core: false });
             toast(`${newLabel} replaces ${oldLabel} in the field`);
           } catch (e) { toast(`Not fully saved (${e.message}): ${step}.`); }
           await ctx.refresh();
@@ -74,9 +77,11 @@ export const tab = {
           try { await start(ctx, s); } catch (e) { go.disabled = false; toast(`Could not start: ${e.message}`); }
         });
         bar.append(go);
-        if (s.kind === 'fix' && s.replaces) {
-          const old = state.combos.find((c) => c.id === s.replaces);
-          const b = h('button', { type: 'button' }, `Use in field instead of ${old ? comboLabel(old, partsById) : s.replaces}`);
+        // Only field-clash fixes swap the field, and only while that combo is still active in it.
+        const inField = s.replacesInField && state.field.some((f) => f.active && f.comboId === s.replacesInField);
+        if (s.kind === 'fix' && inField) {
+          const old = state.combos.find((c) => c.id === s.replacesInField);
+          const b = h('button', { type: 'button' }, `Use in field instead of ${old ? comboLabel(old, partsById) : s.replacesInField}`);
           b.addEventListener('click', () => swapInField(ctx, s));
           bar.append(b);
         }
