@@ -154,3 +154,8 @@ button:disabled { opacity: .5; }
 
 /* Elements with the hidden attribute stay hidden even when a class sets display. */
 [hidden] { display: none !important; }
+
+/* Combos tab: new-combo button and the post-build panel */
+.combos-bar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.built { border: 2px solid var(--accent); border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; background: var(--surface); }
+.built .link { background: transparent; border: 0; color: var(--accent); padding: 0; min-height: 44px; }

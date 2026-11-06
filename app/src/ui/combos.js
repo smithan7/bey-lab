@@ -5,7 +5,7 @@ import { comboLeaderboard, fieldCombos } from '../lineup.js';
 import { matchupStats } from '../stats.js';
 import { pairingScores, finishBreakdown, comboFlags } from '../matchups.js';
 import { makeRng } from '../rng.js';
-import { h } from './pickers.js';
+import { h, openComboBuilder } from './pickers.js';
 import { toast } from './log.js';
 
 const ROW_SIMS = { draws: 4000, raceSims: 4000 };
@@ -20,6 +20,9 @@ export const fmtRace = (r) => (r ? `${fmtPct(r.p)} [${fmtPct(r.lo)}–${fmtPct(r
 
 // Fixed-seed stats cached by (combo, opponent, score content), so re-renders are cheap and stable.
 const cache = new Map();
+
+// Session memory: the combo just built here, so the "test it" panel survives re-renders.
+let justBuilt = null;
 function cachedStats(key, scores) {
   const k = `${key}#${scores.join(',')}`;
   if (!cache.has(k)) {
@@ -166,11 +169,51 @@ function buildCard(ctx, state, c, fieldIds, topIds) {
   return card;
 }
 
+function newComboBar(ctx) {
+  const b = h('button', { type: 'button', class: 'primary' }, '＋ New combo');
+  b.addEventListener('click', async () => {
+    const id = await openComboBuilder(ctx);
+    if (!id) return;
+    justBuilt = id;
+    toast(`Saved ${comboLabel(ctx.store.state().combos.find((c) => c.id === id), ctx.partsById)}`);
+    await ctx.refresh();
+    document.getElementById('view')?.scrollTo?.(0, 0);
+  });
+  return h('div', { class: 'combos-bar' }, b);
+}
+
+// After building: one tap to start logging the new combo against each field combo.
+function justBuiltPanel(ctx, state, fieldIds) {
+  const c = state.combos.find((x) => x.id === justBuilt);
+  if (!c) { justBuilt = null; return null; }
+  const label = comboLabel(c, ctx.partsById);
+  const panel = h('section', { class: 'built', 'aria-label': 'New combo' });
+  panel.append(h('p', { class: 'detail-title' }, `New: ${label}`));
+  const opps = fieldIds.filter((f) => f !== c.id);
+  if (opps.length) {
+    panel.append(h('p', { class: 'muted' }, 'Test it against your field — tap one to open the Log with both combos picked:'));
+    const row = h('div', { class: 'row-btns' });
+    for (const o of opps) {
+      const ob = h('button', { type: 'button' }, `vs ${comboLabel(state.combos.find((x) => x.id === o), ctx.partsById)}`);
+      ob.addEventListener('click', () => { justBuilt = null; ctx.goTo('log', { left: c.id, right: o }); });
+      row.append(ob);
+    }
+    panel.append(row);
+  } else {
+    panel.append(h('p', { class: 'muted' }, 'Nothing is in the field yet. Turn on "In field" for some combos to test against.'));
+  }
+  const done = h('button', { type: 'button', class: 'link' }, 'Dismiss');
+  done.addEventListener('click', () => { justBuilt = null; ctx.refresh(); });
+  panel.append(done);
+  return panel;
+}
+
 export const tab = {
   id: 'combos',
   label: 'Combos',
   render(ctx, el) {
     const state = ctx.store.state();
+    el.append(newComboBar(ctx));
     const fieldIds = fieldCombos(state);
     const lb = comboLeaderboard(state, { rng: makeRng(7), draws: 500, raceSims: 0 });
     const ranked = lb.map((r) => r.comboId);
@@ -181,7 +224,9 @@ export const tab = {
     const ordered = [...ranked, ...state.combos.filter((c) => played.has(c.id) && !ranked.includes(c.id)).map((c) => c.id)];
     const untested = state.combos.filter((c) => !played.has(c.id));
 
-    if (!state.combos.length) { el.append(h('p', { class: 'muted' }, 'No combos yet. Build one from the Log tab.')); return; }
+    const panel = justBuiltPanel(ctx, state, fieldIds);
+    if (panel) el.append(panel);
+    if (!state.combos.length) { el.append(h('p', { class: 'muted' }, 'No combos yet. Tap New combo to build one.')); return; }
     el.append(h('p', { class: 'muted' }, `Ordered by average EV against the active field (${fieldIds.length} in field). Intervals are 95%.`));
     for (const id of ordered) el.append(buildCard(ctx, state, byId.get(id), fieldIds, topIds));
     if (untested.length) {
