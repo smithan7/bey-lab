@@ -24,11 +24,12 @@ function sample(p, rng) {
 export function playMatch(probs, target, rng, lead = null) {
   const ours = [0, 1, 2];
   const theirs = [0, 1, 2];
-  const rest = lead == null ? null : [0, 1, 2].filter(i => i !== lead);
   let us = 0, them = 0;
   for (;;) {
-    if (lead == null) shuffle3(rng, ours);
-    else { shuffle3(rng, rest); ours[0] = lead; ours[1] = rest[0]; ours[2] = rest[1]; }
+    // Same rng calls with or without a lead (common random numbers); a lead is then
+    // swapped into slot 0, which leaves the other two uniformly ordered.
+    shuffle3(rng, ours);
+    if (lead != null) { const k = ours.indexOf(lead); ours[k] = ours[0]; ours[0] = lead; }
     shuffle3(rng, theirs);
     for (let s = 0; s < 3; s++) {
       const x = sample(probs[ours[s]][theirs[s]], rng);

@@ -226,8 +226,8 @@ test('lead: symmetric coin-flip data gives no recommended lead', () => {
   let k = 0;
   const alternate = () => (k++ % 2 ? 1 : -1); // exactly 10 wins and 10 losses per pairing
   const { state, parts } = leadState(() => alternate);
-  // Default screen size: the lead decision then uses 3000 matches per lead, where noise rarely reaches LEAD_MIN_GAIN.
-  const r = rankLineups(state, parts, { rng: makeRng(4), refineOuter: 40, refineInner: 20 });
+  // Reduced sizes: lead and random order share rng streams in playMatch, so noise cancels.
+  const r = rankLineups(state, parts, { rng: makeRng(4), ...FAST });
   const d = r.ranked[0];
   for (const t of ['target5', 'target7']) {
     assert.equal(d.best[t].lead, null, t);
