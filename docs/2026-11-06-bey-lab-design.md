@@ -139,7 +139,7 @@ The son runs it on his **iPad**, at the practice stadium, between launches.
   - a per-combo "average EV vs field" leaderboard, so the tab is useful from day one
 - **The opponent field doesn't need to be legal.** It's a yardstick, so the app simulates against it as-is and shows a warning badge. If the field has more than 3 combos, average over *all* 3-combo subsets, legal or not.
 - **Parts library (user decision).**
-  - The app ships with a **built-in Beyblade X parts catalog**: blades, ratchets and bits, loaded from `docs/parts-catalog.json`. That file was researched from public sources as of 2026-11-06.
+  - The app ships with a **built-in Beyblade X parts catalog**: blades, ratchets and bits, loaded from `app/data/parts-catalog.json`. That file was researched from public sources as of 2026-11-06.
   - Each part carries its official full name, alternate names (Takara Tomy vs Hasbro), line, type and confidence. Blades also carry a built-in-ratchet flag and multi-piece components where they apply.
   - Users can **add new blades, ratchets and bits** in the app, and edit or rename parts they added. User-added parts are stored with the user's data and survive Export/Import.
   - When a catalog update ships with a later app version, it adds new parts without overwriting user-added ones.

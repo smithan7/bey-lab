@@ -5816,9 +5816,7 @@
       "status": "released",
       "ratchet_integrated": true,
       "notes": "Ratchet and Bit are one piece; a combo using it has no separate ratchet (e.g. PegasusBlast ATr = Assist A + Turbo).",
-      "alt_names": [
-        "likely what users call \"Pop Out\" (tip pops out under spin)"
-      ],
+      "alt_names": [],
       "image_url": "https://static.wikia.nocookie.net/beyblade/images/c/cf/RatchetBitTurbo.png/revision/latest?cb=20250613042038",
       "image_page": "https://beyblade.fandom.com/wiki/Ratchet-Integrated_Bit_-_Turbo",
       "image_confidence": "high"
