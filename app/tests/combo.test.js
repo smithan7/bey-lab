@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { normalizeCatalog, mergeParts } from '../src/catalog.js';
-import { comboId, validateCombo, comboParts, comboLabel, deckClashes, isLegalDeck } from '../src/combo.js';
+import { comboId, validateCombo, comboParts, comboLabel, deckClashes, isLegalDeck, partRefName } from '../src/combo.js';
 
 const raw = JSON.parse(readFileSync(new URL('../data/parts-catalog.json', import.meta.url), 'utf8'));
 const catalog = normalizeCatalog(raw);
@@ -83,4 +83,17 @@ test('comboId is deterministic', () => {
   assert.equal(comboId(pegasus()), comboId(pegasus()));
   assert.equal(comboId(wizard()), comboId(wizard()));
   assert.notEqual(comboId(wizard()), comboId(pegasus()));
+});
+
+test('partRefName prefixes CX components with their kind', () => {
+  const m = new Map([
+    ['lc', { kind: 'lock_chip', name: 'Pegasus' }], ['mb', { kind: 'main_blade', name: 'Blast', displayName: 'Blast' }],
+    ['ab', { kind: 'assist_blade', name: 'Assault' }], ['ob', { kind: 'over_blade', name: 'Break' }],
+    ['mt', { kind: 'metal_blade', name: 'Heavy' }], ['r', { kind: 'ratchet', name: '2-60' }],
+    ['bt', { kind: 'bit', name: 'Free Ball' }], ['bl', { kind: 'blade', name: 'Wizard Rod', displayName: 'My Rod' }],
+  ]);
+  assert.deepEqual(['lc', 'mb', 'ab', 'ob', 'mt', 'r', 'bt', 'bl', 'nope'].map((id) => partRefName(m, id)), [
+    'lock chip Pegasus', 'main blade Blast', 'assist blade Assault', 'over blade Break', 'metal blade Heavy',
+    '2-60', 'Free Ball', 'My Rod', 'nope',
+  ]);
 });

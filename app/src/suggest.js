@@ -1,5 +1,5 @@
 // Next-test suggestions. Pure: reads the lineup result and the data, runs no simulation.
-import { comboId, comboLabel, comboParts, deckClashes, validateCombo } from './combo.js';
+import { comboId, comboLabel, comboParts, deckClashes, partRefName, validateCombo } from './combo.js';
 import { comboFlags, finishBreakdown, pairingDistribution, pairingScores } from './matchups.js';
 import { matchupStats } from './stats.js';
 import { candidateCombos, comboLeaderboard, fieldCombos, missingPairings } from './lineup.js';
@@ -28,7 +28,7 @@ export function suggestTests(state, parts, lineupResult, { rng, draws = 0, raceS
   const battles = state.battles ?? [];
   const combosById = new Map((state.combos ?? []).map((c) => [c.id, c]));
   const partsById = new Map(parts.map((p) => [p.id, p]));
-  const name = (id) => partsById.get(id)?.displayName || partsById.get(id)?.name || id;
+  const name = (id) => partRefName(partsById, id);
   const label = (c) => comboLabel(c, partsById);
   const lineup = lineupResult ?? { ranked: [], blocked: [] };
   const ranked = lineup.ranked ?? [];

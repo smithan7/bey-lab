@@ -1,6 +1,6 @@
 // Combos tab: one report card per combo (ordered by EV vs the active field) plus field toggles.
 // DOM is built with textContent only (part names can be user-entered).
-import { comboLabel, comboParts } from '../combo.js';
+import { comboLabel, comboParts, partRefName } from '../combo.js';
 import { comboLeaderboard, fieldCombos } from '../lineup.js';
 import { matchupStats } from '../stats.js';
 import { pairingScores, finishBreakdown, comboFlags } from '../matchups.js';
@@ -28,8 +28,6 @@ function cachedStats(key, scores) {
   }
   return cache.get(k);
 }
-
-const partName = (p, id) => (p ? (p.displayName || p.name) : id);
 
 function finishText(label, counts) {
   const bits = FINISH_NAMES.filter(([k]) => counts[k] > 0).map(([k, name]) => `${counts[k]}× ${name}`);
@@ -133,7 +131,7 @@ function buildCard(ctx, state, c, fieldIds, topIds) {
   for (const oid of others) {
     const o = state.combos.find((x) => x.id === oid);
     if (!o) continue;
-    const shared = comboParts(o).filter((pid) => mine.has(pid)).map((pid) => partName(partsById.get(pid), pid));
+    const shared = comboParts(o).filter((pid) => mine.has(pid)).map((pid) => partRefName(partsById, pid));
     if (shared.length) chips.append(h('span', { class: 'chip clash' }, `Shares ${shared.join(', ')} with ${comboLabel(o, partsById)}`));
   }
   card.append(chips);

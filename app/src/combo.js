@@ -8,6 +8,18 @@ const nameOf = (partsById, id) => {
   return p ? (p.displayName || p.name) : id;
 };
 
+const CX_KIND_WORDS = {
+  lock_chip: 'lock chip', main_blade: 'main blade', over_blade: 'over blade', metal_blade: 'metal blade', assist_blade: 'assist blade',
+};
+
+// A part's full name for clash text: CX components carry their kind ("lock chip Pegasus"),
+// since "Pegasus" alone is ambiguous; ratchets, bits and single blades keep their plain names.
+export function partRefName(partsById, id) {
+  const kind = lookup(partsById, id)?.kind;
+  const n = nameOf(partsById, id);
+  return CX_KIND_WORDS[kind] ? `${CX_KIND_WORDS[kind]} ${n}` : n;
+}
+
 function cxBladeParts(blade) {
   return [blade.lockChip, blade.mainBlade, blade.overBlade, blade.metalBlade, blade.assistBlade];
 }
