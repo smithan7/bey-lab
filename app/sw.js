@@ -30,7 +30,7 @@ self.addEventListener('fetch', (e) => {
   if (url.hostname === PHOTO_HOST) {
     e.respondWith(photo(req));
   } else if (url.origin === self.location.origin) {
-    e.respondWith(staleWhileRevalidate(req, e));
+    staleWhileRevalidate(e);
   }
 });
 
@@ -44,25 +44,29 @@ async function photo(req) {
   return res;
 }
 
-async function staleWhileRevalidate(req, e) {
-  const cache = await caches.open(CACHE_VERSION);
-  const hit = await cache.match(req, { ignoreSearch: true });
+function staleWhileRevalidate(e) {
+  const req = e.request;
+  // Start the network request synchronously so waitUntil is called during dispatch.
   const net = fetch(req).then(async (res) => {
-    if (res.ok) await cache.put(req, res.clone()).catch(() => {});
+    if (res.ok) {
+      const cache = await caches.open(CACHE_VERSION);
+      await cache.put(req, res.clone()).catch(() => {});
+    }
     return res;
   });
-  if (hit) {
-    e.waitUntil(net.catch(() => {}));
-    return hit;
-  }
   e.waitUntil(net.catch(() => {}));
-  try {
-    return await net;
-  } catch (err) {
-    if (req.mode === 'navigate') {
-      const shell = await cache.match('index.html');
-      if (shell) return shell;
+  e.respondWith((async () => {
+    const cache = await caches.open(CACHE_VERSION);
+    const hit = await cache.match(req, { ignoreSearch: true });
+    if (hit) return hit;
+    try {
+      return await net;
+    } catch (err) {
+      if (req.mode === 'navigate') {
+        const shell = await cache.match('index.html');
+        if (shell) return shell;
+      }
+      throw err;
     }
-    throw err;
-  }
+  })());
 }
