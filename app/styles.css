@@ -108,3 +108,5 @@ button:disabled { opacity: .5; }
 .switch.on .knob { background: var(--accent); }
 .switch.on .knob::after { left: 21px; }
 .untested summary { min-height: 56px; display: flex; align-items: center; font-weight: 600; cursor: pointer; }
+.chip.win { background: color-mix(in srgb, #2e9e5b 18%, var(--bg)); }
+.chip.loss { background: color-mix(in srgb, var(--danger) 16%, var(--bg)); }

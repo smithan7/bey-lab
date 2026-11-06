@@ -16,11 +16,14 @@ const FINISH_NAMES = [['xtreme', 'Xtreme'], ['pocket', 'Pocket'], ['burst', 'Bur
 export const fmtEv = (v) => `${Math.round(Math.abs(v) * 100) === 0 || v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}`;
 export const fmtPct = (v) => `${Math.round(v * 100)}%`;
 
-// Fixed-seed stats cached by (combo, opponent, number of battles), so re-renders are cheap and stable.
+// Fixed-seed stats cached by (combo, opponent, score content), so re-renders are cheap and stable.
 const cache = new Map();
 function cachedStats(key, scores) {
-  const k = `${key}#${scores.length}`;
-  if (!cache.has(k)) cache.set(k, matchupStats(scores, { rng: makeRng(20260611), ...ROW_SIMS }));
+  const k = `${key}#${scores.join(',')}`;
+  if (!cache.has(k)) {
+    if (cache.size >= 500) cache.delete(cache.keys().next().value);
+    cache.set(k, matchupStats(scores, { rng: makeRng(20260611), ...ROW_SIMS }));
+  }
   return cache.get(k);
 }
 
@@ -106,14 +109,17 @@ function buildCard(ctx, state, c, fieldIds, topIds) {
       b.disabled = true;
       const cur = ctx.store.state().field.find((f) => f.comboId === c.id) ?? { comboId: c.id, active: false, core: false };
       const next = { ...cur, [key]: !on };
+      let note = '';
+      if (key === 'core' && next.core && !next.active) { next.active = true; note = ' (also in field)'; }
+      if (key === 'active' && !next.active && next.core) { next.core = false; note = ' (no longer core)'; }
       try {
         await ctx.store.setFieldEntry(next);
-        toast(`${comboLabel(c, partsById)}: ${key === 'active' ? (next.active ? 'in field' : 'out of field') : (next.core ? 'core' : 'not core')}`);
-        const top = document.getElementById('view')?.scrollTop ?? 0;
-        await ctx.refresh();
-        const v = document.getElementById('view');
-        if (v) v.scrollTop = top;
-      } catch (e) { b.disabled = false; toast(e.message); }
+      } catch (e) { b.disabled = false; toast(`Not saved: ${e.message}`); return; }
+      toast(`${comboLabel(c, partsById)}: ${key === 'active' ? (next.active ? 'in field' : 'out of field') : (next.core ? 'core' : 'not core')}${note}`);
+      const view = document.getElementById('view');
+      const top = view?.scrollTop ?? 0;
+      try { await ctx.refresh(); } catch (e) { toast(`Saved, but the view failed to refresh: ${e.message}`); return; }
+      if (view) view.scrollTop = top;
     });
     return b;
   };
