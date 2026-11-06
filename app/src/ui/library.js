@@ -42,7 +42,8 @@ function coverPhoto(state, part) {
 }
 
 function refImg(part, cls) {
-  const img = h('img', { class: cls, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer', src: part.imageUrl });
+  const img = h('img', { class: cls, alt: part.displayName, loading: 'lazy', referrerpolicy: 'no-referrer', src: part.imageUrl });
+  img.addEventListener('error', () => img.replaceWith(text('div', `${cls} none`, 'no reference photo')));
   return img;
 }
 
@@ -124,7 +125,7 @@ export const tab = {
         await keepScroll(ctx, el);
       };
       t.addEventListener('click', toggle);
-      t.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+      t.addEventListener('keydown', (e) => { if (e.target !== t) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
       return t;
     }
 
@@ -149,13 +150,14 @@ function openDetail(ctx, partId) {
   let error = '';
   let editing = false;
   let confirmDel = null;
-  const close = () => { revoke(urls); sheet.done(null); };
+  let closed = false;
+  const close = () => { closed = true; revoke(urls); sheet.done(null); };
 
   async function act(fn) {
     error = '';
     try { await fn(); } catch (e) { error = e.message; }
     await ctx.refresh();
-    draw();
+    if (!closed) draw();
   }
 
   function draw() {
@@ -213,6 +215,7 @@ function openDetail(ctx, partId) {
           await ctx.store.addPhoto(partId, blob, w, hh);
         });
       });
+      document.getElementById('photo-input')?.remove();
       document.body.append(input);
       input.click();
     }, 'primary');
@@ -257,7 +260,7 @@ function openDetail(ctx, partId) {
         btn('Edit', () => { editing = true; draw(); }),
         btn('Merge into…', async () => {
           const merged = await openMergePicker(ctx, part);
-          if (merged) { revoke(urls); sheet.done(null); }
+          if (merged) close();
         })));
     }
   }
@@ -274,19 +277,27 @@ function openMergePicker(ctx, from) {
   const msg = h('p', { class: 'error', role: 'alert' });
   const list = h('div', {});
   const known = new Set(ctx.catalogParts.map((p) => p.id));
+  let pending = null;
   const fill = (q) => {
     list.replaceChildren();
+    if (pending) {
+      const p = ctx.partsById.get(pending);
+      list.append(text('p', '', `Merge ${from.displayName} into ${p.displayName}? This can't be undone.`),
+        h('div', { class: 'row-btns' },
+          btn(`Confirm merge into ${p.displayName}`, async () => {
+            try {
+              await ctx.store.mergePart(from.id, p.id, { knownPartIds: known });
+            } catch (e) { pending = null; msg.textContent = e.message; fill(q); return; }
+            await ctx.refresh();
+            toast(`Merged into ${p.displayName}`);
+            sheet.done(true);
+          }, 'danger'),
+          btn('Back', () => { pending = null; fill(q); })));
+      return;
+    }
     const cands = searchParts(ctx.parts.filter((p) => !p.hidden && p.id !== from.id), q, from.kind).slice(0, 60);
     for (const p of cands) {
-      list.append(listButton(p.displayName, async () => {
-        msg.textContent = '';
-        try {
-          await ctx.store.mergePart(from.id, p.id, { knownPartIds: known });
-        } catch (e) { msg.textContent = e.message; return; }
-        await ctx.refresh();
-        toast(`Merged into ${p.displayName}`);
-        sheet.done(true);
-      }, p.line ?? ''));
+      list.append(listButton(p.displayName, () => { msg.textContent = ''; pending = p.id; fill(q); }, p.line ?? ''));
     }
     if (!cands.length) list.append(h('p', { class: 'muted' }, 'Nothing matches.'));
   };
@@ -318,6 +329,7 @@ function openAddPart(ctx) {
     const kind = kindSel.value;
     const name = nm.value.trim();
     if (!name) { err.textContent = 'Enter a name.'; return; }
+    if (!slug(name)) { err.textContent = 'The name needs at least one letter or number.'; return; }
     const id = `${kind}:${slug(name)}`;
     if (ctx.partsById.has(id)) {
       err.textContent = `${ctx.partsById.get(id).displayName} already exists as a ${KIND_LABEL[kind].toLowerCase()}. Use a different name, or find the existing part.`;
