@@ -1,5 +1,5 @@
 // Next-test suggestions. Pure: reads the lineup result and the data, runs no simulation.
-import { comboId, comboLabel, comboParts, deckClashes, isLegalDeck, validateCombo } from './combo.js';
+import { comboId, comboLabel, comboParts, deckClashes, validateCombo } from './combo.js';
 import { comboFlags, finishBreakdown, pairingDistribution, pairingScores } from './matchups.js';
 import { matchupStats } from './stats.js';
 import { candidateCombos, comboLeaderboard, fieldCombos, missingPairings } from './lineup.js';
@@ -91,7 +91,7 @@ export function suggestTests(state, parts, lineupResult, { rng, draws = 0, raceS
       const [lo, hi] = [Math.min(...evs), Math.max(...evs)];
       for (const c of candidates) {
         const row = lb.get(c);
-        if (top.includes(c) || !row || row.evCI[1] < lo || row.evCI[0] > hi) continue;
+        if (top.includes(c) || !row || !Array.isArray(row.evCI) || row.evCI.some((x) => x == null || Number.isNaN(x)) || row.evCI[1] < lo || row.evCI[0] > hi) continue;
         for (const [x, y] of missingPairings([c], activeNonCore, battles)) {
           addPair('stage2', x, y, `${label(combosById.get(c))} is close to the top deck's combos but has not faced every other field combo.`);
         }
@@ -142,7 +142,8 @@ export function suggestTests(state, parts, lineupResult, { rng, draws = 0, raceS
       }
     }
     const byClash = (a, b) => a.clash - b.clash || a.field - b.field;
-    return [...bits.sort(byClash), ...ratchets.sort(byClash)];
+    // Fewest clashes with the reference deck, then fewest with the field, then bit before ratchet.
+    return [...bits, ...ratchets].sort(byClash);
   }
 
   const fixes = [];
@@ -153,7 +154,7 @@ export function suggestTests(state, parts, lineupResult, { rng, draws = 0, raceS
     const burst = flags.includes('burst-risk');
     const ko = flags.includes('ko-risk');
     if (!burst && !ko) continue;
-    const swap = swapOptions(combo).sort((a, b) => (a.what === b.what ? 0 : a.what === 'bit' ? -1 : 1))[0];
+    const swap = swapOptions(combo)[0];
     const right = mostDangerous(combo.id);
     if (!swap || !right) continue;
     const text = burst
@@ -173,6 +174,8 @@ export function suggestTests(state, parts, lineupResult, { rng, draws = 0, raceS
 
   for (const f of fixes) add('fix', f.left, f.right, f.reason, f.replaces);
 
+  // Each clash is fixed independently against the original field; with several clashes, applying
+  // one fix does not necessarily make the whole field legal.
   function fixClash({ partId, comboIds }) {
     const kind = partsById.get(partId)?.kind;
     const before = new Set(deckClashes(fieldObjs).map((c) => c.partId));
@@ -182,7 +185,7 @@ export function suggestTests(state, parts, lineupResult, { rng, draws = 0, raceS
       const combo = combosById.get(id);
       const usedElsewhere = new Set(fieldObjs.filter((c) => c.id !== id).flatMap(comboParts));
       const free = (p) => p.id !== partId && !usedElsewhere.has(p.id) && !comboParts(combo).includes(p.id);
-      for (const c of replacements(combo, partId, kind, free)) {
+      for (const c of replacements(combo, partId, kind, free, usedElsewhere)) {
         if (validateCombo(c, partsById)) continue;
         const next = fieldObjs.map((f) => (f.id === id ? c : f));
         const after = deckClashes(next).map((x) => x.partId);
@@ -197,12 +200,20 @@ export function suggestTests(state, parts, lineupResult, { rng, draws = 0, raceS
     return null;
   }
 
-  function* replacements(combo, partId, kind, free) {
+  function* replacements(combo, partId, kind, free, usedElsewhere) {
     const b = combo.blade;
     if (kind === 'blade' && b.type === 'single') {
       for (const p of ownedOf('blade').filter(free)) {
         const noRatchet = p.builtInRatchet || partsById.get(combo.bit)?.ratchetIntegrated;
-        yield withId({ ...combo, blade: { ...b, bladeId: p.id }, ratchet: noRatchet ? null : combo.ratchet });
+        if (noRatchet || combo.ratchet) {
+          yield withId({ ...combo, blade: { ...b, bladeId: p.id }, ratchet: noRatchet ? null : combo.ratchet });
+        } else {
+          // The old blade had a built-in ratchet; the new one needs an owned ratchet that doesn't clash.
+          const usedHere = new Set(comboParts(combo));
+          for (const r of ownedOf('ratchet').filter((x) => !usedElsewhere.has(x.id) && !usedHere.has(x.id))) {
+            yield withId({ ...combo, blade: { ...b, bladeId: p.id }, ratchet: r.id });
+          }
+        }
       }
     } else if (CX_FIELD[kind] && b.type === 'cx') {
       for (const p of ownedOf(kind).filter(free)) yield withId({ ...combo, blade: { ...b, [CX_FIELD[kind]]: p.id } });
@@ -222,9 +233,10 @@ export function suggestTests(state, parts, lineupResult, { rng, draws = 0, raceS
       for (const f of field) {
         if (a === f) continue;
         const scores = pairingScores(battles, a, f);
-        if (scores.length < 2 || scores.length >= NARROW_MAX_N) continue;
+        if (scores.length === 0 || scores.length >= NARROW_MAX_N) continue;
         const { evCI } = matchupStats(scores, { draws: 0, raceSims: 0 });
-        if (evCI[1] - evCI[0] > NARROW_WIDTH) {
+        // A single battle gives no interval at all, which counts as narrow.
+        if (scores.length < 2 || !evCI || evCI[1] - evCI[0] > NARROW_WIDTH) {
           const [ca, cf] = [combosById.get(a), combosById.get(f)];
           if (ca && cf) add('narrow', ca, cf, `${label(ca)} vs ${label(cf)} is still uncertain after ${scores.length} battles.`);
         }
