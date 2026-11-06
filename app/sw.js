@@ -1,0 +1,66 @@
+// Bump CACHE_VERSION on every release.
+const CACHE_VERSION = 'bey-lab-v1';
+const PHOTO_CACHE = 'bey-lab-photos';
+const PHOTO_HOST = 'static.wikia.nocookie.net';
+const CORE = [
+  './', 'index.html', 'styles.css', 'manifest.webmanifest', 'data/parts-catalog.json',
+  'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
+  'src/catalog.js', 'src/combo.js', 'src/lineup-worker.js', 'src/lineup.js', 'src/matchups.js',
+  'src/rng.js', 'src/scoring.js', 'src/seed.js', 'src/sim.js', 'src/stats.js', 'src/store.js', 'src/suggest.js',
+  'src/ui/app.js', 'src/ui/settings.js', 'src/ui/log.js', 'src/ui/combos.js',
+  'src/ui/lineup.js', 'src/ui/next.js', 'src/ui/library.js',
+];
+
+self.addEventListener('install', (e) => {
+  e.waitUntil(caches.open(CACHE_VERSION).then((c) => c.addAll(CORE)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_VERSION && k !== PHOTO_CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()),
+  );
+});
+
+self.addEventListener('fetch', (e) => {
+  const req = e.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.hostname === PHOTO_HOST) {
+    e.respondWith(photo(req));
+  } else if (url.origin === self.location.origin) {
+    e.respondWith(staleWhileRevalidate(req));
+  }
+});
+
+async function photo(req) {
+  const cache = await caches.open(PHOTO_CACHE);
+  const hit = await cache.match(req.url);
+  if (hit) return hit;
+  const res = await fetch(req.url, { mode: 'no-cors', referrerPolicy: 'no-referrer' });
+  if (res.ok || res.type === 'opaque') cache.put(req.url, res.clone()).catch(() => {});
+  return res;
+}
+
+async function staleWhileRevalidate(req) {
+  const cache = await caches.open(CACHE_VERSION);
+  const hit = await cache.match(req, { ignoreSearch: true });
+  const net = fetch(req).then((res) => {
+    if (res.ok) cache.put(req, res.clone()).catch(() => {});
+    return res;
+  });
+  if (hit) {
+    net.catch(() => {});
+    return hit;
+  }
+  try {
+    return await net;
+  } catch (err) {
+    if (req.mode === 'navigate') {
+      const shell = await cache.match('index.html');
+      if (shell) return shell;
+    }
+    throw err;
+  }
+}

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bey Lab</title>
+<meta name="theme-color" content="#182642">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Bey Lab">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="banner" class="banner" role="alert" hidden>⚠ Data is NOT being saved on this iPad.</div>
+<header class="topbar">
+  <h1>Bey Lab</h1>
+  <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙</button>
+</header>
+<main id="view" tabindex="-1"></main>
+<nav id="tabs" class="tabbar" aria-label="Sections"></nav>
+<div id="dialog-host"></div>
+<script type="module" src="src/ui/app.js"></script>
+</body>
+</html>

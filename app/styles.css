@@ -1,0 +1,66 @@
+:root {
+  --bg: #f4f6fb; --surface: #ffffff; --text: #162038; --muted: #5b6785;
+  --border: #d5dbe9; --accent: #2a5bd7; --accent-text: #ffffff;
+  --danger: #c62828; --warn-bg: #b71c1c; --warn-text: #ffffff;
+  --tab-h: 64px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1626; --surface: #1a2540; --text: #e8ecf6; --muted: #9aa6c4;
+    --border: #2e3b5e; --accent: #6b93ff; --accent-text: #0b1226;
+    --danger: #ff6b6b; --warn-bg: #8e1b1b;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 17px/1.4 -apple-system, system-ui, "Segoe UI", sans-serif;
+  touch-action: manipulation; -webkit-text-size-adjust: 100%;
+  display: flex; flex-direction: column;
+}
+.banner {
+  background: var(--warn-bg); color: var(--warn-text); padding: 12px 16px;
+  padding-top: calc(12px + env(safe-area-inset-top)); font-weight: 600; text-align: center;
+}
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 16px; padding-top: calc(4px + env(safe-area-inset-top));
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.banner:not([hidden]) + .topbar { padding-top: 4px; }
+.topbar h1 { font-size: 20px; margin: 0; }
+button {
+  font: inherit; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 12px;
+  min-height: 56px; padding: 0 20px; cursor: pointer;
+}
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+button.danger { color: var(--danger); border-color: var(--danger); }
+.icon-btn { min-width: 56px; font-size: 26px; padding: 0; border: 0; background: transparent; }
+main { flex: 1; overflow-y: auto; padding: 16px; -webkit-overflow-scrolling: touch; }
+.tabbar {
+  display: flex; background: var(--surface); border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.tabbar button {
+  flex: 1; min-height: 56px; height: var(--tab-h); border: 0; border-radius: 0;
+  background: transparent; color: var(--muted); font-size: 16px; padding: 0 4px;
+}
+.tabbar button[aria-selected="true"] { color: var(--accent); font-weight: 700; box-shadow: inset 0 3px 0 var(--accent); }
+.overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex;
+  align-items: center; justify-content: center; padding: 16px; z-index: 100;
+}
+.dialog {
+  background: var(--surface); color: var(--text); border-radius: 16px;
+  max-width: 520px; width: 100%; max-height: 90vh; overflow-y: auto; padding: 20px;
+  border: 1px solid var(--border);
+}
+.dialog h2 { margin: 0 0 8px; font-size: 20px; }
+.dialog .body { margin: 0 0 16px; }
+.dialog .actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: flex-end; }
+.settings-list { display: flex; flex-direction: column; gap: 12px; }
+.settings-list button { width: 100%; text-align: left; }
+.hint { color: var(--muted); font-size: 14px; }
+.error { color: var(--danger); }
