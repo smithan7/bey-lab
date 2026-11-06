@@ -9,6 +9,8 @@ export const SCREEN_MATCHES = 1000;
 export const REFINE_OUTER = 200;
 export const REFINE_INNER = 50;
 export const TOP_N = 5;
+// A fixed lead is only recommended if it beats random order by at least this much.
+export const LEAD_MIN_GAIN = 0.02;
 const BLOCKED_N = 5;
 const LEADS = [0, 1, 2];
 const TARGETS = { target5: 5, target7: 7 };
@@ -95,17 +97,44 @@ function refine(mats, target, lead, rng, outer, inner) {
 
 const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
 
+// Lead choice with common random numbers: every lead (and random order) replays the same
+// rng stream, so differences reflect the lead rather than Monte Carlo noise.
+function decideLead(mats, target, seed, matches) {
+  const at = (lead) => mean(mats.map((m) => matchWinPoint(m, target, { rng: makeRng(seed), matches, lead })));
+  const pNull = at(null);
+  let best = null;
+  for (const lead of LEADS) {
+    const p = at(lead);
+    if (!best || p > best.p) best = { lead, p };
+  }
+  const leadGain = best.p - pNull;
+  return { lead: leadGain >= LEAD_MIN_GAIN ? best.lead : null, leadGain };
+}
+
+// True only when the best first-to-7 deck beats the best first-to-5 deck at first to 7 by
+// more than 2 standard errors. se is taken from the refined 95% interval over `outer` draws.
+export function decideDiffers(ranked, { outer = REFINE_OUTER } = {}) {
+  if (!ranked.length) return false;
+  const top5 = ranked[0];
+  const top7 = ranked.reduce((a, b) => (b.best.target7.p > a.best.target7.p ? b : a));
+  if (top7 === top5 || sameSet(top7.deck, top5.deck)) return false;
+  const se = (r) => ((r.hi - r.lo) / 3.92) / Math.sqrt(outer);
+  const gap = top7.best.target7.p - top5.best.target7.p;
+  return gap > 2 * Math.hypot(se(top7.best.target7), se(top5.best.target7));
+}
+
 /**
  * Ranks legal decks of owned, tested combos against the active field.
  * ranked: the TOP_N decks by screened first-to-5 P(win), refined, sorted by refined
- *   best.target5.p descending. `lead` is an index into `deck`. `differs` (same on every
- *   entry) says whether the best refined first-to-5 and first-to-7 decks differ.
+ *   best.target5.p descending. `lead` is an index into `deck`, or null when no lead beats
+ *   random order by LEAD_MIN_GAIN (then best equals randomOrder). `differs` (same on
+ *   every entry) comes from decideDiffers.
  * blocked: legal decks with missing pairings, fewest missing first.
  */
 export function rankLineups(state, parts, {
   rng = makeRng(Date.now()),
   screenMatches = SCREEN_MATCHES, refineOuter = REFINE_OUTER, refineInner = REFINE_INNER, topN = TOP_N,
-  leaderboardOptions = {},
+  leaderboardOptions = { draws: 200, raceSims: 200 },
 } = {}) {
   const combosById = byIdMap(state.combos);
   const battles = state.battles ?? [];
@@ -123,34 +152,30 @@ export function rankLineups(state, parts, {
 
   let ranked = [];
   if (fds.length) {
+    // Screening: deck quality under its best lead at first to 5.
     const screened = rankable.map(({ deck }) => {
       const mats = fds.map((fd) => matrix(battles, deck, fd));
-      const best = {};
-      for (const [t, target] of Object.entries(TARGETS)) {
-        let top = null;
-        for (const lead of LEADS) {
-          const p = mean(mats.map((m) => matchWinPoint(m, target, { rng, matches: screenMatches, lead })));
-          if (!top || p > top.p) top = { lead, p };
-        }
-        best[t] = top;
+      let p5 = -Infinity;
+      for (const lead of LEADS) {
+        p5 = Math.max(p5, mean(mats.map((m) => matchWinPoint(m, 5, { rng, matches: screenMatches, lead }))));
       }
-      return { deck, mats, best };
+      return { deck, mats, p5 };
     });
-    screened.sort((a, b) => b.best.target5.p - a.best.target5.p);
-    ranked = screened.slice(0, topN).map(({ deck, mats, best }) => {
+    screened.sort((a, b) => b.p5 - a.p5);
+    ranked = screened.slice(0, topN).map(({ deck, mats }) => {
       const out = { deck, best: {}, randomOrder: {} };
+      const seed = Math.floor(rng() * 4294967296);
       for (const [t, target] of Object.entries(TARGETS)) {
-        out.best[t] = { lead: best[t].lead, ...refine(mats, target, best[t].lead, rng, refineOuter, refineInner) };
-        out.randomOrder[t] = refine(mats, target, null, rng, refineOuter, refineInner);
+        const random = refine(mats, target, null, rng, refineOuter, refineInner);
+        const { lead, leadGain } = decideLead(mats, target, seed, 3 * screenMatches);
+        out.randomOrder[t] = random;
+        out.best[t] = { lead, leadGain, ...(lead == null ? random : refine(mats, target, lead, rng, refineOuter, refineInner)) };
       }
       return out;
     });
     ranked.sort((a, b) => b.best.target5.p - a.best.target5.p);
-    if (ranked.length) {
-      const top7 = ranked.reduce((a, b) => (b.best.target7.p > a.best.target7.p ? b : a));
-      const differs = !sameSet(ranked[0].deck, top7.deck);
-      for (const r of ranked) r.differs = differs;
-    }
+    const differs = decideDiffers(ranked, { outer: refineOuter });
+    for (const r of ranked) r.differs = differs;
   }
 
   let blocked = [];
@@ -164,5 +189,5 @@ export function rankLineups(state, parts, {
       .map(({ deck, missing }) => ({ deck, missing }));
   }
 
-  return { ranked, blocked, fieldLegal };
+  return { ranked, blocked, fieldLegal, fieldTooSmall: field.length < 3 };
 }

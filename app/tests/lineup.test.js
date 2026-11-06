@@ -7,7 +7,7 @@ import { comboId, comboLabel, isLegalDeck } from '../src/combo.js';
 import { makeRng } from '../src/rng.js';
 import {
   candidateCombos, fieldCombos, fieldDecks, enumerateLegalDecks, missingPairings,
-  rankLineups, comboLeaderboard, SCREEN_MATCHES, REFINE_OUTER, REFINE_INNER, TOP_N,
+  rankLineups, comboLeaderboard, decideDiffers, SCREEN_MATCHES, REFINE_OUTER, REFINE_INNER, TOP_N, LEAD_MIN_GAIN,
 } from '../src/lineup.js';
 
 const catalog = normalizeCatalog(JSON.parse(readFileSync(new URL('../data/parts-catalog.json', import.meta.url), 'utf8')));
@@ -23,7 +23,7 @@ const S = (label) => {
 const FAST = { screenMatches: 200, refineOuter: 40, refineInner: 20 };
 
 test('constants match the global constraints', () => {
-  assert.deepEqual([SCREEN_MATCHES, REFINE_OUTER, REFINE_INNER, TOP_N], [1000, 200, 50, 5]);
+  assert.deepEqual([SCREEN_MATCHES, REFINE_OUTER, REFINE_INNER, TOP_N, LEAD_MIN_GAIN], [1000, 200, 50, 5, 0.02]);
 });
 
 test('fieldDecks: one deck for 3, all 3-subsets for more, none for fewer', () => {
@@ -50,6 +50,7 @@ test('seed: nothing ranked, blocked decks are legal and list baseline pairings',
   const r = rankLineups(seed, seedParts, { rng: makeRng(7), ...FAST });
   assert.equal(r.ranked.length, 0);
   assert.equal(r.fieldLegal, false);
+  assert.equal(r.fieldTooSmall, false);
   assert.ok(r.blocked.length > 0 && r.blocked.length <= 5);
   const pb = [S('Pegasus Blast 2-60 Free Ball'), S('Pegasus Blast 2-60 Pop Out (unverified)')];
   const byId = new Map(seed.combos.map((c) => [c.id, c]));
@@ -145,7 +146,10 @@ test('synthetic: combo that always wins +3 tops every ranking; ranked decks are 
     assert.ok(isLegalDeck(d.deck.map((id) => byId.get(id))), 'illegal ranked deck');
     for (const t of ['target5', 'target7']) {
       const b = d.best[t];
-      assert.ok([0, 1, 2].includes(b.lead));
+      assert.ok([0, 1, 2, null].includes(b.lead));
+      assert.equal(typeof b.leadGain, 'number');
+      if (b.lead == null) assert.deepEqual({ p: b.p, lo: b.lo, hi: b.hi }, d.randomOrder[t]);
+      else assert.ok(b.leadGain >= LEAD_MIN_GAIN);
       assert.ok(b.lo <= b.p && b.p <= b.hi);
       assert.ok(d.randomOrder[t].lo <= d.randomOrder[t].p && d.randomOrder[t].p <= d.randomOrder[t].hi);
     }
@@ -155,7 +159,7 @@ test('synthetic: combo that always wins +3 tops every ranking; ranked decks are 
   assert.deepEqual(r.blocked, []);
 });
 
-test('synthetic: differs matches whether the best first-to-5 and first-to-7 decks differ', () => {
+test('smoke (sim-driven): Xtreme vs Spin decks; differs agrees across entries', () => {
   const rng = makeRng(23);
   const F = [mk('wizard-arrow', '3-60', 'flat'), mk('leon-claw', '4-60', 'ball'), mk('hells-chain', '4-80', 'high-needle')];
   const B1 = mk('dran-dagger', '3-80', 'low-flat');
@@ -184,8 +188,87 @@ test('synthetic: differs matches whether the best first-to-5 and first-to-7 deck
   const top = (t) => r.ranked.reduce((a, b) => (b.best[t].p > a.best[t].p ? b : a));
   const same = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
   const differs = !same(top('target5').deck, top('target7').deck);
-  // At these sim sizes the Spin combo's deck tops both targets; `differs` must agree either way.
+  // Smoke only: at these sim sizes the Spin combo's deck tops both targets.
   assert.equal(differs, false);
   assert.ok(top('target5').deck.includes(SP.id));
   for (const d of r.ranked) assert.equal(d.differs, differs);
+});
+
+// ---- lead decision ----
+
+function leadState(genFor) {
+  const rng = makeRng(31);
+  const F = [mk('wizard-arrow', '3-60', 'flat'), mk('leon-claw', '4-60', 'ball'), mk('hells-chain', '4-80', 'high-needle')];
+  const C = [mk('dran-dagger', '3-80', 'low-flat'), mk('sphinx-cowl', '5-60', 'high-taper'), mk('dran-buster', '5-80', 'gear-flat')];
+  const battles = [];
+  C.forEach((c, i) => { for (const f of F) battles.push(...battlesFor(c, f, 20, genFor(i), rng)); });
+  const state = {
+    userParts: [], overrides: ownAll(C), combos: [...F, ...C], battles,
+    field: F.map((c) => ({ comboId: c.id, active: true, core: true })),
+  };
+  return { state, C, parts: mergeParts(catalog, [], state.overrides) };
+}
+
+test('lead: a dominant combo (always +2, others always -1) is recommended as lead', () => {
+  // (The Task 8 +3/-2 case gains ~0.57 at first to 5 but only ~0.01 at first to 7, so +2/-1 is used to show both targets.)
+  const { state, C, parts } = leadState((i) => (i === 0 ? () => 2 : () => -1));
+  const r = rankLineups(state, parts, { rng: makeRng(4), ...FAST });
+  assert.equal(r.ranked.length, 1);
+  const d = r.ranked[0];
+  for (const t of ['target5', 'target7']) {
+    assert.notEqual(d.best[t].lead, null, t);
+    assert.equal(d.deck[d.best[t].lead], C[0].id);
+    assert.ok(d.best[t].leadGain >= LEAD_MIN_GAIN);
+  }
+});
+
+test('lead: symmetric coin-flip data gives no recommended lead', () => {
+  let k = 0;
+  const alternate = () => (k++ % 2 ? 1 : -1); // exactly 10 wins and 10 losses per pairing
+  const { state, parts } = leadState(() => alternate);
+  // Default screen size: the lead decision then uses 3000 matches per lead, where noise rarely reaches LEAD_MIN_GAIN.
+  const r = rankLineups(state, parts, { rng: makeRng(4), refineOuter: 40, refineInner: 20 });
+  const d = r.ranked[0];
+  for (const t of ['target5', 'target7']) {
+    assert.equal(d.best[t].lead, null, t);
+    assert.ok(d.best[t].leadGain < LEAD_MIN_GAIN);
+    assert.deepEqual({ p: d.best[t].p, lo: d.best[t].lo, hi: d.best[t].hi }, d.randomOrder[t]);
+  }
+});
+
+// ---- differs noise guard ----
+
+const row = (deck, p5, p7, w = 0.2) => ({
+  deck,
+  best: { target5: { lead: null, p: p5, lo: p5 - w, hi: p5 + w }, target7: { lead: null, p: p7, lo: p7 - w, hi: p7 + w } },
+});
+
+test('decideDiffers: a clear first-to-7 winner differs', () => {
+  // se = 0.4/3.92/sqrt(200) = 0.0072; threshold = 2*hypot = 0.0204
+  assert.equal(decideDiffers([row(['a', 'b', 'c'], 0.6, 0.55), row(['a', 'b', 'd'], 0.58, 0.6)], { outer: 200 }), true);
+});
+
+test('decideDiffers: a within-noise swap does not differ', () => {
+  assert.equal(decideDiffers([row(['a', 'b', 'c'], 0.6, 0.55), row(['a', 'b', 'd'], 0.58, 0.56)], { outer: 200 }), false);
+});
+
+test('decideDiffers: the same deck on top at both targets does not differ', () => {
+  assert.equal(decideDiffers([row(['a', 'b', 'c'], 0.6, 0.6), row(['a', 'b', 'd'], 0.5, 0.5)], { outer: 200 }), false);
+  assert.equal(decideDiffers([], { outer: 200 }), false);
+});
+
+test('candidateCombos excludes an owned combo with zero battles', () => {
+  const extra = mk('cobalt-dragoon', '3-70', 'disk-ball');
+  const state = { ...seed, combos: [...seed.combos, extra] };
+  const parts = mergeParts(catalog, seed.userParts, { ...seed.overrides, ...ownAll([extra]) });
+  const cands = candidateCombos(state, parts);
+  assert.ok(!cands.includes(extra.id));
+  assert.equal(cands.length, 6);
+});
+
+test('fieldTooSmall when fewer than 3 active field combos', () => {
+  const state = { ...seed, field: seed.field.map((f, i) => ({ ...f, active: i > 0 })) };
+  const r = rankLineups(state, seedParts, { rng: makeRng(2), ...FAST });
+  assert.equal(r.fieldTooSmall, true);
+  assert.deepEqual(r.ranked, []);
 });
