@@ -5,7 +5,7 @@ import { comboLeaderboard, fieldCombos } from '../lineup.js';
 import { matchupStats } from '../stats.js';
 import { pairingScores, finishBreakdown, comboFlags } from '../matchups.js';
 import { makeRng } from '../rng.js';
-import { h, openComboBuilder } from './pickers.js';
+import { h, openComboBuilder, openSheet } from './pickers.js';
 import { toast } from './log.js';
 
 const ROW_SIMS = { draws: 4000, raceSims: 4000 };
@@ -164,9 +164,66 @@ function buildCard(ctx, state, c, fieldIds, topIds) {
     });
     return b;
   };
-  toggles.append(sw('In field', 'active'), sw('Core', 'core'));
+  const edit = h('button', { type: 'button', class: 'edit-combo' }, 'Edit');
+  edit.addEventListener('click', () => openEditCombo(ctx, c));
+  toggles.append(sw('In field', 'active'), sw('Core', 'core'), edit);
   card.append(toggles);
   return card;
+}
+
+// Edit menu for one combo: fix its parts (battles follow), make a variant (new combo), or delete if untested.
+function openEditCombo(ctx, c) {
+  const label = comboLabel(c, ctx.partsById);
+  const n = ctx.store.state().battles.filter((b) => b.left === c.id || b.right === c.id).length;
+  const sheet = openSheet(`Edit ${label}`);
+  const cancel = h('button', { type: 'button' }, 'Cancel');
+  cancel.addEventListener('click', () => sheet.done(null));
+  sheet.head.append(cancel, sheet.heading);
+  const choice = (title, desc, value, cls = '') => {
+    const b = h('button', { type: 'button', class: `list-btn choice ${cls}`.trim() }, h('strong', {}, title), h('span', { class: 'muted' }, desc));
+    b.addEventListener('click', () => sheet.done(value));
+    return b;
+  };
+  const battles = n === 1 ? '1 battle' : `${n} battles`;
+  sheet.body.append(
+    choice('Fix parts', n ? `It was logged with a wrong part. Its ${battles} move to the corrected combo.` : 'Change its parts.', 'fix'),
+    choice('Make a variant', 'Start a new combo from this one (e.g. a different ratchet). This one and its battles stay as they are.', 'variant'));
+  if (!n) sheet.body.append(choice('Delete combo', 'Remove it. It has no battles, so no test data is lost.', 'delete', 'danger'));
+  else sheet.body.append(h('p', { class: 'muted' }, `Combos with battles can’t be deleted, so test data is never lost. Turn off “In field” to set it aside.`));
+
+  return sheet.promise.then(async (what) => {
+    if (what === 'fix') {
+      let merged = false;
+      const id = await openComboBuilder(ctx, {
+        initial: c, title: 'Fix parts', saveLabel: n ? `Save fix (moves ${battles})` : 'Save',
+        onSave: async (full) => {
+          merged = full.id !== c.id && ctx.store.state().combos.some((x) => x.id === full.id);
+          await ctx.store.replaceCombo(c.id, full);
+        },
+      });
+      if (!id) return;
+      await ctx.refresh();
+      const now = comboLabel(ctx.store.state().combos.find((x) => x.id === id), ctx.partsById);
+      toast(id === c.id ? 'No change' : merged ? `Merged into existing ${now}` : `Fixed: ${now}`);
+    } else if (what === 'variant') {
+      const id = await openComboBuilder(ctx, {
+        initial: c, title: 'Make a variant', saveLabel: 'Save variant',
+        onSave: async (full) => {
+          if (full.id === c.id) throw new Error('Change at least one part to make a variant.');
+          await ctx.store.upsertCombo(full);
+        },
+      });
+      if (!id) return;
+      justBuilt = id;
+      await ctx.refresh();
+      document.getElementById('view')?.scrollTo?.(0, 0);
+    } else if (what === 'delete') {
+      try { await ctx.store.deleteCombo(c.id); } catch (e) { toast(e.message); return; }
+      if (justBuilt === c.id) justBuilt = null;
+      toast(`Deleted ${label}`);
+      await ctx.refresh();
+    }
+  });
 }
 
 function newComboBar(ctx) {

@@ -215,3 +215,67 @@ test('importData checks battle winner and points', async () => {
     await assert.rejects(s.importData(b(w, p)), ImportError, `${w} ${p}`);
   }
 });
+
+test('replaceCombo moves battles and field entry to the corrected combo', async () => {
+  const s = await createStore(new MemoryBackend());
+  const wrong = single('blade:red-hulk', 'ratchet:3-60', 'bit:low-rush');
+  const opp = single('blade:wizard-rod', 'ratchet:2-60', 'bit:gear-ball');
+  await s.upsertCombo(wrong); await s.upsertCombo(opp);
+  await s.setFieldEntry({ comboId: wrong.id, active: true, core: true });
+  await s.addBattle(battle('1', wrong.id, opp.id, 1));
+  await s.addBattle(battle('2', opp.id, wrong.id, 2));
+  const fixed = single('blade:red-hulk', 'ratchet:1-60', 'bit:low-rush');
+  const st = await s.replaceCombo(wrong.id, fixed);
+  assert.deepEqual(st.combos.map((c) => c.id).sort(), [fixed.id, opp.id].sort());
+  assert.deepEqual(st.battles.map((b) => [b.left, b.right]), [[fixed.id, opp.id], [opp.id, fixed.id]]);
+  assert.deepEqual(st.field, [{ comboId: fixed.id, active: true, core: true }]);
+});
+
+test('replaceCombo into an existing combo merges their battles and field flags', async () => {
+  const s = await createStore(new MemoryBackend());
+  const a = single('blade:a', 'ratchet:3-60', 'bit:flat');
+  const b = single('blade:a', 'ratchet:1-60', 'bit:flat');
+  const o = single('blade:o', 'ratchet:2-60', 'bit:ball');
+  for (const c of [a, b, o]) await s.upsertCombo(c);
+  await s.setFieldEntry({ comboId: a.id, active: true, core: false });
+  await s.setFieldEntry({ comboId: b.id, active: false, core: false });
+  await s.addBattle(battle('1', a.id, o.id, 1));
+  await s.addBattle(battle('2', b.id, o.id, 2));
+  const st = await s.replaceCombo(a.id, b);
+  assert.equal(st.combos.length, 2);
+  assert.equal(st.battles.filter((x) => x.left === b.id).length, 2);
+  assert.deepEqual(st.field, [{ comboId: b.id, active: true, core: false }]);
+});
+
+test('replaceCombo refuses when the two combos battled each other, and leaves state alone', async () => {
+  const s = await createStore(new MemoryBackend());
+  const a = single('blade:a', 'ratchet:3-60', 'bit:flat');
+  const b = single('blade:b', 'ratchet:3-60', 'bit:flat');
+  await s.upsertCombo(a); await s.upsertCombo(b);
+  await s.addBattle(battle('1', a.id, b.id, 1));
+  const before = s.state();
+  await assert.rejects(s.replaceCombo(a.id, b), /battled each other/);
+  assert.deepEqual(s.state(), before);
+});
+
+test('replaceCombo with unchanged parts is a no-op; unknown combo throws', async () => {
+  const s = await createStore(new MemoryBackend());
+  const a = single('blade:a', 'ratchet:3-60', 'bit:flat');
+  await s.upsertCombo(a);
+  assert.deepEqual((await s.replaceCombo(a.id, { ...a })).combos, [a]);
+  await assert.rejects(s.replaceCombo('single:nope', a), /Unknown combo/);
+});
+
+test('deleteCombo removes an untested combo and its field entry, but refuses one with battles', async () => {
+  const s = await createStore(new MemoryBackend());
+  const a = single('blade:a', 'ratchet:3-60', 'bit:flat');
+  const b = single('blade:b', 'ratchet:3-60', 'bit:flat');
+  const c = single('blade:c', 'ratchet:3-60', 'bit:flat');
+  for (const x of [a, b, c]) await s.upsertCombo(x);
+  await s.setFieldEntry({ comboId: c.id, active: true, core: false });
+  await s.addBattle(battle('1', a.id, b.id, 1));
+  await assert.rejects(s.deleteCombo(a.id), /has battles/);
+  const st = await s.deleteCombo(c.id);
+  assert.deepEqual(st.combos.map((x) => x.id), [a.id, b.id]);
+  assert.deepEqual(st.field, []);
+});

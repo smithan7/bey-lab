@@ -159,3 +159,10 @@ button:disabled { opacity: .5; }
 .combos-bar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
 .built { border: 2px solid var(--accent); border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; background: var(--surface); }
 .built .link { background: transparent; border: 0; color: var(--accent); padding: 0; min-height: 44px; }
+
+/* Combo edit menu and builder summary */
+.edit-combo { margin-left: auto; }
+.list-btn.choice { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 12px 16px; }
+.list-btn.choice.danger strong { color: var(--danger); }
+.combo-parts { margin: 8px 0 16px; }
+.combo-part { display: grid; grid-template-columns: 110px 1fr auto; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }

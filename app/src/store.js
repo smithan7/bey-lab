@@ -264,6 +264,45 @@ export async function createStore(backend) {
       return commit(next, () => backend.put('userParts', updated));
     },
 
+    // Correct a combo's parts. Its battles and field entry move to the new combo id; if that combo
+    // already exists, the two are merged (battles combined, field flags OR-ed).
+    async replaceCombo(oldId, combo) {
+      if (!current.combos.some((c) => c.id === oldId)) throw new Error(`Unknown combo ${oldId}`);
+      const newId = combo.id;
+      if (newId === oldId) return snap();
+      if (current.battles.some((b) => (b.left === oldId && b.right === newId) || (b.left === newId && b.right === oldId))) {
+        throw new Error('These two combos battled each other, so one can’t become the other. Make a variant instead.');
+      }
+      const exists = current.combos.some((c) => c.id === newId);
+      const combos = exists
+        ? current.combos.filter((c) => c.id !== oldId)
+        : current.combos.map((c) => (c.id === oldId ? clone(combo) : c));
+      const remap = (id) => (id === oldId ? newId : id);
+      const battles = current.battles.map((b) => (b.left === oldId || b.right === oldId
+        ? { ...b, left: remap(b.left), right: remap(b.right) } : b));
+      const field = new Map();
+      for (const f of current.field) {
+        const id = remap(f.comboId);
+        const prev = field.get(id);
+        field.set(id, prev
+          ? { ...prev, active: prev.active || f.active, core: prev.core || f.core }
+          : { ...f, comboId: id });
+      }
+      return replace({ ...current, combos, battles, field: [...field.values()] });
+    },
+
+    // Only untested combos can be deleted, so battle data is never lost.
+    async deleteCombo(id) {
+      if (current.battles.some((b) => b.left === id || b.right === id)) {
+        throw new Error('This combo has battles, so it can’t be deleted.');
+      }
+      return replace({
+        ...current,
+        combos: current.combos.filter((c) => c.id !== id),
+        field: current.field.filter((f) => f.comboId !== id),
+      });
+    },
+
     // partsById (optional): the parts before the merge; when given, every repointed combo is
     // re-validated. A ratchet next to a now ratchet-integrated bit is dropped; any other
     // invalid combo cancels the merge. Ownership of fromId carries over to intoId.

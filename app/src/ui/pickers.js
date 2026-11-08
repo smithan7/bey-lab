@@ -103,13 +103,30 @@ const KIND_TITLE = {
   metal_blade: 'Metal blade', assist_blade: 'Assist blade', bit: 'Bit', ratchet: 'Ratchet',
 };
 
-export function openComboBuilder(ctx) {
-  const sheet = openSheet('New combo');
+const BLADE_KEYS = ['mode', 'bladeId', 'lockChip', 'body', 'mainBlade', 'overBlade', 'metalBlade', 'assistBlade'];
+
+function selFromCombo(c) {
+  const b = c.blade;
+  const sel = b.type === 'cx'
+    ? { mode: 'cx', lockChip: b.lockChip, assistBlade: b.assistBlade, body: b.mainBlade ? 'main' : 'over',
+        ...(b.mainBlade ? { mainBlade: b.mainBlade } : { overBlade: b.overBlade, metalBlade: b.metalBlade }) }
+    : { mode: 'single', bladeId: b.bladeId };
+  sel.bit = c.bit;
+  if (c.ratchet != null) { sel.ratchet = c.ratchet; sel.ratchetChosen = true; }
+  return sel;
+}
+
+// opts.initial: an existing combo to start from (opens on the summary).
+// opts.onSave(combo): called instead of saving a new combo; may throw to show an error.
+// opts.title / opts.saveLabel: header and button text for the summary.
+export function openComboBuilder(ctx, opts = {}) {
+  const sheet = openSheet(opts.title ?? 'New combo');
   const parts = ctx.parts.filter((p) => !p.hidden);
-  const sel = {};
-  const history = []; // arrays of keys set per step
-  const set = (obj) => { Object.assign(sel, obj); history.push(Object.keys(obj)); };
-  const back = () => { for (const k of history.pop() ?? []) delete sel[k]; };
+  let sel = opts.initial ? selFromCombo(opts.initial) : {};
+  const history = []; // snapshots of sel before each change
+  const set = (obj) => { history.push({ ...sel }); Object.assign(sel, obj); };
+  const clear = (keys) => { history.push({ ...sel }); for (const k of keys) delete sel[k]; };
+  const back = () => { sel = history.pop() ?? sel; };
   const byId = ctx.partsById;
 
   function nextStep() {
@@ -136,7 +153,8 @@ export function openComboBuilder(ctx) {
           overBlade: sel.body === 'over' ? sel.overBlade : null, metalBlade: sel.body === 'over' ? sel.metalBlade : null,
           assistBlade: sel.assistBlade }
       : { type: 'single', bladeId: sel.bladeId };
-    return { blade, ratchet: sel.ratchet ?? null, bit: sel.bit };
+    const noRatchet = (sel.mode === 'single' && byId.get(sel.bladeId)?.builtInRatchet) || byId.get(sel.bit)?.ratchetIntegrated;
+    return { blade, ratchet: noRatchet ? null : (sel.ratchet ?? null), bit: sel.bit };
   }
 
   async function save() {
@@ -145,7 +163,8 @@ export function openComboBuilder(ctx) {
     if (err) { showError(err); return; }
     const full = { id: comboId(combo), ...combo };
     try {
-      await ctx.store.upsertCombo(full);
+      if (opts.onSave) await opts.onSave(full);
+      else await ctx.store.upsertCombo(full);
     } catch (e) { showError(e.message); return; }
     sheet.done(full.id);
   }
@@ -163,6 +182,11 @@ export function openComboBuilder(ctx) {
       if (history.length) { back(); render(); } else sheet.done(null);
     });
     sheet.head.append(left, sheet.heading);
+    if (history.length) {
+      const cancel = h('button', { type: 'button' }, 'Cancel');
+      cancel.addEventListener('click', () => sheet.done(null));
+      sheet.head.append(cancel);
+    }
     sheet.body.replaceChildren();
     if (errorText) sheet.body.append(h('p', { class: 'error', role: 'alert' }, errorText));
     if (!step) { summary(); return; }
@@ -219,13 +243,28 @@ export function openComboBuilder(ctx) {
   }
 
   function summary() {
-    sheet.setTitle('Save this combo?');
+    sheet.setTitle(opts.title ?? 'Save this combo?');
     const combo = assemble();
     const p = h('p', { class: 'combo-name' });
     p.textContent = comboLabel(combo, byId);
-    const ok = h('button', { type: 'button', class: 'primary' }); ok.textContent = 'Save combo';
+    const name = (id) => byId.get(id)?.displayName ?? id;
+    const rows = h('div', { class: 'combo-parts' });
+    const row = (label, value, keys) => {
+      const ch = h('button', { type: 'button' }, 'Change');
+      ch.addEventListener('click', () => { errorText = ''; clear(keys); render(); });
+      rows.append(h('div', { class: 'combo-part' }, h('span', { class: 'muted' }, label), h('strong', {}, value), ch));
+    };
+    if (sel.mode === 'cx') {
+      const body = sel.body === 'main' ? name(sel.mainBlade) : `${name(sel.overBlade)} + ${name(sel.metalBlade)}`;
+      row('Blade (CX)', `${name(sel.lockChip)} · ${body} · ${name(sel.assistBlade)}`, BLADE_KEYS);
+    } else {
+      row('Blade', name(sel.bladeId), BLADE_KEYS);
+    }
+    if (combo.ratchet) row('Ratchet', name(combo.ratchet), ['ratchet', 'ratchetChosen']);
+    row('Bit', name(sel.bit), ['bit']);
+    const ok = h('button', { type: 'button', class: 'primary' }); ok.textContent = opts.saveLabel ?? 'Save combo';
     ok.addEventListener('click', save);
-    sheet.body.append(p, ok);
+    sheet.body.append(p, rows, ok);
   }
 
   render();
