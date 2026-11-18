@@ -126,7 +126,8 @@ export function decideDiffers(ranked, { outer = REFINE_OUTER } = {}) {
  * from EV ratings (ratedDistribution). Legal decks are prefiltered to the PREFILTER highest
  * summed ratings, screened by first-to-5 P(win) under their best lead, and the TOP_N are refined.
  * ranked: sorted by refined best.target5.p (best estimate). estimatedShare: fraction of the
- *   deck's non-mirror pairings in the opponent sample that have no battles.
+ *   deck's non-mirror pairings in the opponent sample that have no battles; memberEstimated: the
+ *   same per deck member (so one mostly-estimated member isn't hidden by the other two).
  * ratings: leaderboard rows (ratingsLeaderboard). tooFew: fewer than 3 tested combos.
  * noLegal: no legal deck of owned, tested combos.
  */
@@ -159,17 +160,22 @@ export function rankLineups(state, parts, {
       for (const lead of LEADS) {
         p5 = Math.max(p5, mean(mats.map((m) => matchWinPoint(m, 5, { rng, matches: screenMatches, lead }))));
       }
-      let cells = 0, est = 0;
+      const cells = [0, 0, 0], est = [0, 0, 0];
       deck.forEach((a, i) => fds.forEach((fd, j) => fd.forEach((b, k) => {
         if (a === b) return;
-        cells++;
-        if (mats[j][i][k].estimated) est++;
+        cells[i]++;
+        if (mats[j][i][k].estimated) est[i]++;
       })));
-      return { deck, mats, p5, estimatedShare: cells ? est / cells : 0 };
+      const sum = (xs) => xs.reduce((x, y) => x + y, 0);
+      return {
+        deck, mats, p5,
+        estimatedShare: sum(cells) ? sum(est) / sum(cells) : 0,
+        memberEstimated: cells.map((c, i) => (c ? est[i] / c : 0)),
+      };
     });
     screened.sort((a, b) => b.p5 - a.p5);
-    ranked = screened.slice(0, topN).map(({ deck, mats, estimatedShare }) => {
-      const out = { deck, best: {}, randomOrder: {}, estimatedShare };
+    ranked = screened.slice(0, topN).map(({ deck, mats, estimatedShare, memberEstimated }) => {
+      const out = { deck, best: {}, randomOrder: {}, estimatedShare, memberEstimated };
       const seed = Math.floor(rng() * 4294967296);
       for (const [t, target] of Object.entries(TARGETS)) {
         const random = refine(mats, target, null, rng, refineOuter, refineInner);

@@ -67,7 +67,9 @@ export function suggestTests(state, parts, lineupResult) {
   let screens = 0;
   for (const c of fresh) {
     if (screens >= MAX_SCREEN) break;
-    const opp = opponents.find((o) => o !== c.id && !sharesParts(c.id, o)) ?? opponents.find((o) => o !== c.id);
+    // With nothing tested yet, pair new combos with each other.
+    const pool = opponents.length ? opponents : fresh.map((x) => x.id);
+    const opp = pool.find((o) => o !== c.id && !sharesParts(c.id, o)) ?? pool.find((o) => o !== c.id);
     if (opp && addPair('screen', c.id, opp, `${label(c)} hasn't been tested yet — start with the strongest combo it can face.`)) screens++;
   }
 

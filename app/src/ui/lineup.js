@@ -170,6 +170,11 @@ function renderResult(ctx, el, result, state, parts) {
       const est = (r.estimatedShare ?? 0) > 0.5;
       card.append(h('p', { class: est ? 'chip flag' : 'muted' },
         `Based on ${testedPct}% tested matchups${est ? ' — mostly estimated from ratings, test more to confirm' : ''}`));
+      // One mostly-estimated member can hide behind two well-tested ones, so name it.
+      (r.memberEstimated ?? []).forEach((share, m) => {
+        if (est || share <= 0.5) return;
+        card.append(h('p', { class: 'chip flag' }, `${label(r.deck[m])}: ${Math.round((1 - share) * 100)}% of its matchups tested — mostly estimated, test more to confirm`));
+      });
       el.append(card);
     });
   }

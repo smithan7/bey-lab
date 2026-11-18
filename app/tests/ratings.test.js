@@ -97,3 +97,9 @@ test('ratingsLeaderboard sorts by rating', () => {
   assert.deepEqual(lb.map((x) => x.comboId), ['A', 'C', 'B']);
   assert.ok(lb.every((x) => 'lo' in x && 'hi' in x && 'n' in x));
 });
+
+test('ratingsLeaderboard leaves out battles whose combo no longer exists', () => {
+  const state = { combos: [{ id: 'A' }, { id: 'B' }], battles: [...games('A', 'B', 2, 5), ...games('A', 'ghost', 1, 3)] };
+  const lb = ratingsLeaderboard(state);
+  assert.deepEqual(lb.map((x) => x.comboId).sort(), ['A', 'B']);
+});

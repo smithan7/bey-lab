@@ -179,3 +179,11 @@ test('cap of 8, kind order, and no duplicates', () => {
   assert.ok(kindOk(out));
   assert.equal(new Set(out.map(idsOf)).size, 8);
 });
+
+test('no battles at all: untested owned combos are screened against each other', () => {
+  const st = mkState([]);
+  const out = suggestTests(st, parts, { ranked: [], ratings: [] });
+  const screens = out.filter((s) => s.kind === 'screen');
+  assert.equal(screens.length, 3);
+  for (const s of screens) assert.notEqual(s.left.id, s.right.id);
+});

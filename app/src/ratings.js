@@ -93,7 +93,10 @@ export function fitRatings(battles, { lambda = LAMBDA } = {}) {
   return out;
 }
 
-// Rated combos as rows, highest rating first.
+// Rated combos as rows, highest rating first. When state.combos is given, battles against a
+// combo that no longer exists still inform the fit but get no row.
 export function ratingsLeaderboard(state, ratings = fitRatings(state.battles)) {
-  return [...ratings.entries()].map(([comboId, v]) => ({ comboId, ...v })).sort((a, b) => b.r - a.r);
+  const known = state.combos ? new Set(state.combos.map((c) => c.id)) : null;
+  return [...ratings.entries()].filter(([id]) => !known || known.has(id))
+    .map(([comboId, v]) => ({ comboId, ...v })).sort((a, b) => b.r - a.r);
 }

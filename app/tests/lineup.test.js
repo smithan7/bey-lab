@@ -291,6 +291,11 @@ test('a partly tested strong combo reaches the #1 deck', () => {
   const r = rankLineups(state, mergeParts(catalog, [], ownAll([...P, X])), { rng: makeRng(5), ...FAST });
   assert.ok(r.ranked[0].deck.includes(X.id), 'X should be in the best deck');
   assert.ok(r.ranked[0].estimatedShare > 0);
+  // Per-member shares expose X even when the deck-wide share looks fine.
+  const i = r.ranked[0].deck.indexOf(X.id);
+  assert.equal(r.ranked[0].memberEstimated.length, 3);
+  assert.ok(r.ranked[0].memberEstimated[i] > 0.5, String(r.ranked[0].memberEstimated[i]));
+  for (const [j, v] of r.ranked[0].memberEstimated.entries()) if (j !== i) assert.ok(v < 0.5);
 });
 
 test('two lucky battles do not out-rate an established top combo, and leave a wide range', () => {

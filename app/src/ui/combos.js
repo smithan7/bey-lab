@@ -21,12 +21,15 @@ export const fmtRace = (r) => (r ? `${fmtPct(r.p)} [${fmtPct(r.lo)}–${fmtPct(r
 // Fixed-seed stats cached by (combo, opponent, score content), so re-renders are cheap and stable.
 const cache = new Map();
 
+// Session memory: cards whose matchup table is open.
+const openCards = new Set();
+
 // Session memory: the combo just built here, so the "test it" panel survives re-renders.
 let justBuilt = null;
 function cachedStats(key, scores) {
   const k = `${key}#${scores.join(',')}`;
   if (!cache.has(k)) {
-    if (cache.size >= 500) cache.delete(cache.keys().next().value);
+    if (cache.size >= 5000) cache.delete(cache.keys().next().value);
     cache.set(k, matchupStats(scores, { rng: makeRng(20260611), ...ROW_SIMS }));
   }
   return cache.get(k);
@@ -90,41 +93,54 @@ function buildCard(ctx, state, c, ratingById, topIds) {
     if (b.left === c.id && b.right !== c.id) faced.add(b.right);
     else if (b.right === c.id && b.left !== c.id) faced.add(b.left);
   }
+  for (const id of faced) if (!state.combos.some((x) => x.id === id)) faced.delete(id);
   const rOf = (id) => ratingById.get(id)?.r ?? -Infinity;
   const opps = [...faced].sort((a, b) => rOf(b) - rOf(a));
-  const table = h('table', { class: 'rtable' });
-  table.append(h('thead', {}, h('tr', {}, ...['Opponent', 'n', 'W-D-L', 'EV [95%]', 'Race to 5', 'Race to 7', 'P(EV<0)'].map((t) => h('th', {}, t)))));
-  const body = h('tbody');
-  for (const o of opps) {
-    const scores = pairingScores(battles, c.id, o);
-    const oppLabel = comboLabel(state.combos.find((x) => x.id === o), partsById);
-    if (!scores.length) {
-      const tr = h('tr', {}, h('th', { scope: 'row' }, oppLabel));
-      tr.append(h('td', { colspan: '6', class: 'muted' }, 'unknown — not tested'));
-      body.append(tr);
-      continue;
+  // The matchup table runs full stats per opponent, so it is built only when opened
+  // (and kept open across re-renders this session).
+  const buildTable = () => {
+    const table = h('table', { class: 'rtable' });
+    table.append(h('thead', {}, h('tr', {}, ...['Opponent', 'n', 'W-D-L', 'EV [95%]', 'Race to 5', 'Race to 7', 'P(EV<0)'].map((t) => h('th', {}, t)))));
+    const body = h('tbody');
+    for (const o of opps) {
+      const scores = pairingScores(battles, c.id, o);
+      const oppLabel = comboLabel(state.combos.find((x) => x.id === o), partsById);
+      if (!scores.length) {
+        const tr = h('tr', {}, h('th', { scope: 'row' }, oppLabel));
+        tr.append(h('td', { colspan: '6', class: 'muted' }, 'unknown — not tested'));
+        body.append(tr);
+        continue;
+      }
+      const st = cachedStats(`${c.id}|${o}`, scores);
+      const btn = h('button', { type: 'button', class: 'rowtoggle', 'aria-expanded': 'false' }, h('span', { class: 'caret', 'aria-hidden': 'true' }, '▸'), h('span', {}, oppLabel));
+      const tr = h('tr', { class: 'expandable' }, h('th', { scope: 'row' }, btn));
+      statCells(tr, st);
+      const detail = detailRow(st, finishBreakdown(battles, c.id, o), `${comboLabel(c, partsById)} vs ${oppLabel}`);
+      btn.addEventListener('click', () => {
+        const open = detail.hidden;
+        detail.hidden = !open;
+        btn.setAttribute('aria-expanded', String(open));
+        btn.firstChild.textContent = open ? '▾' : '▸';
+      });
+      body.append(tr, detail);
     }
-    const st = cachedStats(`${c.id}|${o}`, scores);
-    const btn = h('button', { type: 'button', class: 'rowtoggle', 'aria-expanded': 'false' }, h('span', { class: 'caret', 'aria-hidden': 'true' }, '▸'), h('span', {}, oppLabel));
-    const tr = h('tr', { class: 'expandable' }, h('th', { scope: 'row' }, btn));
-    statCells(tr, st);
-    const detail = detailRow(st, finishBreakdown(battles, c.id, o), `${comboLabel(c, partsById)} vs ${oppLabel}`);
-    btn.addEventListener('click', () => {
-      const open = detail.hidden;
-      detail.hidden = !open;
-      btn.setAttribute('aria-expanded', String(open));
-      btn.firstChild.textContent = open ? '▾' : '▸';
-    });
-    body.append(tr, detail);
+    let all = [];
+    for (const o of opps) all = all.concat(pairingScores(battles, c.id, o));
+    const total = h('tr', { class: 'overall' }, h('th', { scope: 'row' }, 'Overall vs everyone faced'));
+    if (!all.length) total.append(h('td', { colspan: '6', class: 'muted' }, 'unknown — not tested'));
+    else statCells(total, cachedStats(`${c.id}|*${opps.join(',')}`, all));
+    body.append(total);
+    table.append(body);
+    return h('div', { class: 'tscroll' }, table);
+  };
+  if (opps.length) {
+    const d = h('details', { class: 'matchups' }, h('summary', {}, `Matchups vs ${opps.length} combo${opps.length === 1 ? '' : 's'}`));
+    let built = false;
+    const fill = () => { if (!built) { built = true; d.append(buildTable()); } };
+    d.addEventListener('toggle', () => { if (d.open) { openCards.add(c.id); fill(); } else openCards.delete(c.id); });
+    if (openCards.has(c.id)) { d.open = true; fill(); }
+    card.append(d);
   }
-  let all = [];
-  for (const o of opps) all = all.concat(pairingScores(battles, c.id, o));
-  const total = h('tr', { class: 'overall' }, h('th', { scope: 'row' }, 'Overall vs everyone faced'));
-  if (!all.length) total.append(h('td', { colspan: '6', class: 'muted' }, 'unknown — not tested'));
-  else statCells(total, cachedStats(`${c.id}|*${opps.join(',')}`, all));
-  body.append(total);
-  table.append(body);
-  card.append(h('div', { class: 'tscroll' }, table));
   if (!opps.length) card.append(h('p', { class: 'muted' }, 'Not tested yet.'));
 
   // Finish chips and flags from all its battles.
