@@ -80,11 +80,14 @@ export function suggestTests(state, parts, lineupResult) {
     .sort((a, b) => rating.get(b).hi - rating.get(a).hi);
   for (const c of contenders) {
     const row = rating.get(c);
-    const unfaced = opponents.find((o) => o !== c && nBetween(c, o) === 0);
+    // Prefer opponents it can be battled against without two copies of a part.
+    const unfacedAll = opponents.filter((o) => o !== c && nBetween(c, o) === 0);
+    const unfaced = unfacedAll.find((o) => !sharesParts(c, o)) ?? unfacedAll[0];
     if (unfaced) {
       addPair('contender', c, unfaced, `${label(combosById.get(c))} could make the best deck (rating ${fmt(row.r)}, up to ${fmt(row.hi)}) but hasn't faced ${label(combosById.get(unfaced))}.`);
     } else {
-      const least = opponents.filter((o) => o !== c).sort((a, b) => nBetween(c, a) - nBetween(c, b) || rOf(b) - rOf(a))[0];
+      const clash = (o) => (sharesParts(c, o) ? 1 : 0);
+      const least = opponents.filter((o) => o !== c).sort((a, b) => clash(a) - clash(b) || nBetween(c, a) - nBetween(c, b) || rOf(b) - rOf(a))[0];
       if (least) addPair('contender', c, least, `${label(combosById.get(c))} could make the best deck (rating ${fmt(row.r)}, up to ${fmt(row.hi)}) — more battles against ${label(combosById.get(least))} will settle it.`);
     }
   }
@@ -94,9 +97,10 @@ export function suggestTests(state, parts, lineupResult) {
   for (const a of top) for (const o of opponents) {
     if (o === a) continue;
     const n = nBetween(a, o);
-    if (n < UNDER_TESTED) checks.push({ a, o, n });
+    if (n < UNDER_TESTED) checks.push({ a, o, n, clash: sharesParts(a, o) ? 1 : 0 });
   }
-  checks.sort((x, y) => rOf(y.o) - rOf(x.o));
+  // Pairings that need two copies of a part go last; otherwise strongest opponent first.
+  checks.sort((x, y) => x.clash - y.clash || rOf(y.o) - rOf(x.o));
   for (const { a, o, n } of checks) {
     addPair('topcheck', a, o, `${label(combosById.get(a))} is in the best deck but has ${n === 0 ? 'no battles' : `only ${n} battle${n === 1 ? '' : 's'}`} against ${label(combosById.get(o))} (rated ${fmt(rOf(o))}).`);
   }

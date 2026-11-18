@@ -5,7 +5,7 @@ import { ratingsLeaderboard } from '../ratings.js';
 import { matchupStats } from '../stats.js';
 import { pairingScores, finishBreakdown, comboFlags } from '../matchups.js';
 import { makeRng } from '../rng.js';
-import { h, openComboBuilder, openSheet } from './pickers.js';
+import { h, comboThumbs, openComboBuilder, openSheet } from './pickers.js';
 import { toast } from './log.js';
 
 const ROW_SIMS = { draws: 4000, raceSims: 4000 };
@@ -78,12 +78,7 @@ function buildCard(ctx, state, c, ratingById, topIds) {
   const battles = state.battles;
   const card = h('article', { class: 'report', 'data-combo': c.id });
 
-  const thumbs = h('div', { class: 'thumbs' });
-  for (const pid of comboParts(c)) {
-    const url = partsById.get(pid)?.imageUrl;
-    if (url) thumbs.append(h('img', { src: url, alt: '', referrerpolicy: 'no-referrer', loading: 'lazy', class: 'thumb' }));
-  }
-  card.append(h('header', {}, thumbs, h('h3', {}, comboLabel(c, partsById))));
+  card.append(h('header', {}, comboThumbs(c, partsById), h('h3', {}, comboLabel(c, partsById))));
   const rr = ratingById.get(c.id);
   if (rr) card.append(h('p', {}, h('strong', {}, `Rating ${fmtEv(rr.r)}`), ` [${fmtEv(rr.lo)}, ${fmtEv(rr.hi)}] · ${rr.n} battles vs ${rr.opponents} combos`));
 

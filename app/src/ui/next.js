@@ -1,7 +1,7 @@
 // Next tab: what to test next, from suggestTests over the shared lineup computation.
 import { comboLabel } from '../combo.js';
 import { suggestTests } from '../suggest.js';
-import { h } from './pickers.js';
+import { h, comboThumbs } from './pickers.js';
 import { toast } from './log.js';
 import { watchLineup } from './lineup.js';
 
@@ -29,7 +29,10 @@ export const tab = {
       list.forEach((s) => {
         const row = h('article', { class: 'report', 'data-kind': s.kind });
         row.append(h('div', { class: 'chips' }, h('span', { class: 'chip' }, KIND[s.kind] ?? s.kind)));
-        row.append(h('h3', {}, `${comboLabel(s.left, partsById)} vs ${comboLabel(s.right, partsById)}`));
+        row.append(h('h3', { class: 'sr-only' }, `${comboLabel(s.left, partsById)} vs ${comboLabel(s.right, partsById)}`));
+        // Each side with its part photos, so it's clear which physical beys to build.
+        const side = (c) => h('div', { class: 'side' }, comboThumbs(c, partsById), h('strong', {}, comboLabel(c, partsById)));
+        row.append(h('div', { class: 'matchup', 'aria-hidden': 'true' }, side(s.left), h('span', { class: 'vs' }, 'vs'), side(s.right)));
         row.append(h('p', {}, s.reason));
         const bar = h('div', { class: 'toggles' });
         const go = h('button', { type: 'button', class: 'primary' }, 'Start');

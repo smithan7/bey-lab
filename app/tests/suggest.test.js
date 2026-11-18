@@ -105,12 +105,13 @@ test('contender: range reaching the #1 deck gets its strongest unfaced opponent;
 });
 
 test('contender who has faced everyone gets its least-tested opponent', () => {
-  const b = [...many(W, C, [1, 1, 1, 1, 1]), ...many(W, P, [1]), ...many(C, P, [1, -1, 1, -1])];
-  const st = mkState(b, seed.combos.filter((c) => [W, C, P].includes(c.id)));
+  // W shares no parts with C or H (W and P share 2-60, so P is avoided here).
+  const b = [...many(W, C, [1, 1, 1, 1, 1]), ...many(W, H, [1]), ...many(C, H, [1, -1, 1, -1])];
+  const st = mkState(b, seed.combos.filter((c) => [W, C, H].includes(c.id)));
   const out = suggestTests(st, parts, withRatings(st, []));
   const s = out.find((x) => x.kind === 'contender' && x.left.id === W);
   assert.ok(s);
-  assert.equal(s.right.id, P);
+  assert.equal(s.right.id, H);
 });
 
 test('no ranked deck: every tested candidate is a contender, ordered by upper bound', () => {
@@ -186,4 +187,19 @@ test('no battles at all: untested owned combos are screened against each other',
   const screens = out.filter((s) => s.kind === 'screen');
   assert.equal(screens.length, 3);
   for (const s of screens) assert.notEqual(s.left.id, s.right.id);
+});
+
+test('contender and topcheck prefer opponents that need no shared parts', () => {
+  // P (Pegasus Blast Free Ball) and O (Pegasus Blast Pop Out) share the blade. O is the strongest
+  // opponent, but P should be pointed at a combo it can physically battle at the same time.
+  const b = [...many(O, H, [3, 3, 3, 3, 3]), ...many(O, G, [3, 3, 3, 3]), ...many(P, H, [1, -1, 1]), ...many(W, C, [1, -1, 1, -1])];
+  const st = mkState(b);
+  const shares = (s) => comboParts(s.left).some((p) => comboParts(s.right).includes(p));
+  const out = suggestTests(st, parts, withRatings(st, [{ deck: [W, C, G] }]));
+  const pc = out.find((s) => s.kind === 'contender' && s.left.id === P);
+  assert.ok(pc, 'P should be a contender');
+  assert.ok(!shares(pc), `contender pairing shares parts: ${label(pc.left)} vs ${label(pc.right)}`);
+  const tc = out.filter((s) => s.kind === 'topcheck');
+  const firstClash = tc.findIndex(shares);
+  if (firstClash >= 0) assert.ok(tc.slice(firstClash).every(shares), 'clashing topchecks come after non-clashing ones');
 });

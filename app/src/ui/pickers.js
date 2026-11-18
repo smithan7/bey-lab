@@ -1,6 +1,6 @@
 // Combo picker and builder. recentCombos is a pure view-model (Node-testable);
 // everything else builds DOM with textContent only (part names can be user-entered).
-import { comboId, comboLabel, validateCombo } from '../combo.js';
+import { comboId, comboLabel, comboParts, validateCombo } from '../combo.js';
 import { searchParts } from '../catalog.js';
 
 export function recentCombos(state, limit = 8) {
@@ -277,4 +277,14 @@ function presetKeys(c) {
     lockChip: c.lockChip, assistBlade: c.assistBlade, body: main ? 'main' : 'over',
     ...(main ? { mainBlade: c.mainBlade } : { overBlade: c.overBlade, metalBlade: c.metalBlade }),
   };
+}
+
+// Part photos for one combo (blade pieces, ratchet, bit), as small thumbnails.
+export function comboThumbs(c, partsById) {
+  const box = h('div', { class: 'thumbs' });
+  for (const pid of comboParts(c)) {
+    const url = partsById.get(pid)?.imageUrl;
+    if (url) box.append(h('img', { src: url, alt: '', referrerpolicy: 'no-referrer', loading: 'lazy', class: 'thumb' }));
+  }
+  return box;
 }
