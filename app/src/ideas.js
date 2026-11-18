@@ -139,3 +139,80 @@ export function variantsFor(combo, state, parts, { k = 3, reference } = {}) {
     return { combo: c, score, reason: `Swap ${swaps}. ${reasonFor(c, partsById, reference, changed)}` };
   });
 }
+
+const MIN_GAIN = 0.05;
+const BASIS_TOP = 8;
+const PER_COMBO = 2;
+
+/**
+ * Parts you don't own that would most improve your combos, for a shopping list.
+ * A ratchet or bit is scored by the best swap into one of your top combos (by rating, else all
+ * combos); a blade by its best build from your owned parts against your best combo of that type.
+ * ratings: Map of combo id → { r } (optional). Up to `limit` ratchets and bits, then up to `limit`
+ * blades. Returns [{ part, gain, combo, from, reason }], each group best first.
+ */
+export function partsToFind(state, parts, { reference, ratings, limit = 8, top = BASIS_TOP } = {}) {
+  const partsById = new Map(parts.map((p) => [p.id, p]));
+  const owned = parts.filter((p) => p.owned);
+  const combos = state.combos ?? [];
+  const existing = new Set(combos.map((c) => c.id));
+  const rated = ratings ? combos.filter((c) => ratings.has(c.id)).sort((a, b) => ratings.get(b.id).r - ratings.get(a.id).r) : [];
+  const basis = (rated.length ? rated : combos).slice(0, top);
+  if (!basis.length) return [];
+  const score = new Map(basis.map((c) => [c.id, comboScore(c, partsById, reference)]));
+  const wanted = parts.filter((p) => !p.owned && !p.hidden && (p.meta || p.stats));
+  const out = [];
+  const lbl = (c) => comboLabel(c, partsById);
+  const why = (p, c, from) => {
+    const m = metaCombo(c, reference);
+    if (m) return `${lbl(c)} is a top WBO combo (${m.tier} tier, ${m.cuts.toLocaleString('en-US')} top-3 finishes, ${pct(m.firstRate)} 1st) and ${p.displayName ?? p.name} is the only part you're missing.`;
+    return `${partFact(p, partsById)}.`;
+  };
+
+  for (const p of wanted.filter((q) => q.kind === 'ratchet' || q.kind === 'bit')) {
+    let best = null;
+    for (const c of basis) {
+      if (c[p.kind] === p.id) continue;
+      const v = { ...c, [p.kind]: p.id };
+      if (p.kind === 'bit' && p.ratchetIntegrated) v.ratchet = null;
+      delete v.id;
+      const full = { ...v, id: comboId(v) };
+      if (existing.has(full.id) || validateCombo(full, partsById)) continue;
+      const gain = comboScore(full, partsById, reference) - score.get(c.id);
+      if (!best || gain > best.gain) best = { gain, combo: full, from: c };
+    }
+    if (best && best.gain >= MIN_GAIN) {
+      out.push({ part: p, ...best, reason: `Would make ${lbl(best.from)} better as ${lbl(best.combo)}. ${why(p, best.combo)}` });
+    }
+  }
+
+  const bestOfType = new Map();
+  for (const c of basis) {
+    const t = bladeType(c, partsById);
+    if (!bestOfType.has(t) || score.get(c.id) > score.get(bestOfType.get(t).id)) bestOfType.set(t, c);
+  }
+  const overall = basis.reduce((a, c) => (score.get(c.id) > score.get(a.id) ? c : a));
+  for (const p of wanted.filter((q) => q.kind === 'blade' && !q.cxPreset && q.meta)) {
+    let best = null;
+    for (const c of buildsFor({ type: 'single', bladeId: p.id }, owned, partsById, existing)) {
+      const s = comboScore(c, partsById, reference);
+      if (!best || s > best.s) best = { s, combo: c };
+    }
+    if (!best) continue;
+    const from = bestOfType.get(p.type ?? 'balance') ?? overall;
+    const gain = best.s - score.get(from.id);
+    if (gain < MIN_GAIN) continue;
+    out.push({ part: p, gain, combo: best.combo, from,
+      reason: `Would let you build ${lbl(best.combo)} with parts you have, better than ${lbl(from)}. ${why(p, best.combo)}` });
+  }
+  // Best first, at most PER_COMBO suggestions for any one combo, so one weak combo can't fill the list.
+  const best = (xs) => {
+    const seen = new Map();
+    return xs.sort((a, b) => b.gain - a.gain).filter((x) => {
+      const n = seen.get(x.from.id) ?? 0;
+      seen.set(x.from.id, n + 1);
+      return n < PER_COMBO;
+    }).slice(0, limit);
+  };
+  return [...best(out.filter((x) => x.part.kind !== 'blade')), ...best(out.filter((x) => x.part.kind === 'blade'))];
+}

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { normalizeCatalog, mergeParts, withReference } from '../src/catalog.js';
 import { comboId, comboLabel, comboParts, validateCombo } from '../src/combo.js';
-import { partScore, comboIdeas, variantsFor, TIER_VALUE } from '../src/ideas.js';
+import { partScore, comboIdeas, variantsFor, partsToFind, TIER_VALUE } from '../src/ideas.js';
 
 const raw = JSON.parse(readFileSync(new URL('../data/parts-catalog.json', import.meta.url), 'utf8'));
 const ref = JSON.parse(readFileSync(new URL('../data/reference.json', import.meta.url), 'utf8'));
@@ -88,4 +88,36 @@ test('the fit line only claims a good fit when the stats suit the blade type', (
   const ball = vs.find((v) => v.combo.bit === 'bit:ball');
   assert.ok(ball, vs.map((v) => comboLabel(v.combo, byId)).join());
   assert.match(ball.reason, /stats don't lean towards an attack blade/);
+});
+
+test('partsToFind: unowned parts that improve your top combos, best first', () => {
+  const ownedIds = ['blade:wizard-rod', 'blade:shark-scale', 'ratchet:4-60', 'ratchet:1-60', 'bit:hexa', 'bit:point'];
+  const parts = own(ownedIds);
+  const byId = new Map(parts.map((p) => [p.id, p]));
+  const wiz = mk('blade:wizard-rod', 'ratchet:4-60', 'bit:hexa');
+  const shark = mk('blade:shark-scale', 'ratchet:1-60', 'bit:point');
+  const ratings = new Map([[shark.id, { r: 1.2 }], [wiz.id, { r: 0.8 }]]);
+  const list = partsToFind({ combos: [wiz, shark], battles: [] }, parts, { reference: ref, ratings });
+  assert.ok(list.length >= 3);
+  for (const x of list) {
+    assert.ok(!x.part.owned, x.part.id);
+    assert.ok(x.gain > 0);
+    assert.equal(validateCombo(x.combo, byId), null);
+    assert.ok(comboParts(x.combo).every((id) => id === x.part.id || ownedIds.includes(id)), comboLabel(x.combo, byId));
+    assert.ok(comboParts(x.combo).includes(x.part.id));
+    assert.match(x.reason, /^Would (make|let you build) /);
+  }
+  const groups = [list.filter((x) => x.part.kind !== 'blade'), list.filter((x) => x.part.kind === 'blade')];
+  assert.deepEqual([...groups[0], ...groups[1]], list, 'ratchets and bits first, then blades');
+  for (const g of groups) {
+    assert.ok(g.length <= 8);
+    for (let i = 1; i < g.length; i++) assert.ok(g[i - 1].gain >= g[i].gain);
+    const per = new Map();
+    for (const x of g) per.set(x.from.id, (per.get(x.from.id) ?? 0) + 1);
+    assert.ok([...per.values()].every((n) => n <= 2), 'at most 2 per combo');
+  }
+  // A better ratchet than 4-60 for Wizard Rod Hexa should be on the list (e.g. an S-tier ratchet).
+  assert.ok(list.some((x) => x.part.kind === 'ratchet' && x.from.id === wiz.id), list.map((x) => x.part.id).join());
+  // Owning nothing tested → nothing to compare against.
+  assert.deepEqual(partsToFind({ combos: [], battles: [] }, parts, { reference: ref }), []);
 });

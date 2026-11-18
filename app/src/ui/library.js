@@ -2,7 +2,9 @@
 // DOM is built with textContent only (names can be user-entered).
 import { PART_KINDS, PART_TYPES, searchParts, slug, sortParts, typeLabel } from '../catalog.js';
 import { resizeImage } from '../photos.js';
-import { h, openSheet, searchBox, listButton } from './pickers.js';
+import { h, openSheet, searchBox, listButton, comboThumbs } from './pickers.js';
+import { partsToFind } from '../ideas.js';
+import { fitRatings } from '../ratings.js';
 import { toast } from './log.js';
 
 const GROUPS = [
@@ -25,6 +27,7 @@ let query = '';
 let ownedOnly = false;
 let typeFilter = 'all';
 let byTier = false;
+let lookFor = false;
 
 let tileUrls = [];
 const revoke = (urls) => { for (const u of urls.splice(0)) URL.revokeObjectURL(u); };
@@ -159,7 +162,14 @@ export const tab = {
     const tierSw = h('button', { type: 'button', class: `switch${byTier ? ' on' : ''}`, role: 'switch', 'aria-checked': String(byTier) },
       h('span', { class: 'knob' }), 'Sort by WBO tier');
     tierSw.addEventListener('click', () => { byTier = !byTier; ctx.refresh(); });
-    const bar = h('div', { class: 'lib-bar' }, ownedSw, tierSw, addBtn);
+    const lookSw = h('button', { type: 'button', class: `switch${lookFor ? ' on' : ''}`, role: 'switch', 'aria-checked': String(lookFor) },
+      h('span', { class: 'knob' }), 'Parts to look for');
+    lookSw.addEventListener('click', () => { lookFor = !lookFor; ctx.refresh(); });
+    if (lookFor) {
+      el.append(h('div', { class: 'lib-bar' }, lookSw), wantList(ctx, state, el));
+      return;
+    }
+    const bar = h('div', { class: 'lib-bar' }, ownedSw, tierSw, lookSw, addBtn);
 
     const typed = group.kinds.some((k) => !UNTYPED.has(k));
     if (!typed) typeFilter = 'all';
@@ -177,6 +187,40 @@ export const tab = {
     fill();
   },
 };
+
+// ---------- parts to look for ----------
+
+// Unowned parts that would most improve your combos (see partsToFind), with what each would make.
+function wantList(ctx, state, el) {
+  const box = h('div', { class: 'want' });
+  const list = partsToFind(state, ctx.parts, { reference: ctx.reference, ratings: fitRatings(state.battles) });
+  box.append(text('p', 'muted', 'Parts you don\'t have yet that would make your best combos better, going by WBO results and packaging stats. Worth looking for at the next event or store trip.'));
+  if (!list.length) {
+    box.append(text('p', 'muted', state.combos.length ? 'Nothing stands out: your parts already cover the best options we know of.' : 'Add some combos first, then this shows parts that would make them better.'));
+    return box;
+  }
+  const section = (title, items) => {
+    if (!items.length) return;
+    box.append(text('h3', '', title));
+    for (const x of items) {
+      const p = x.part;
+      const img = p.imageUrl ? refImg(p, 'want-img') : text('div', 'want-img none', 'no photo');
+      const head = h('div', { class: 'want-head' }, text('strong', '', p.displayName));
+      if (p.meta) head.append(text('span', `tier tier-${p.meta.tier === '?' ? 'q' : p.meta.tier}`, p.meta.tier));
+      const info = btn('Details', () => openDetail(ctx, p.id));
+      const got = btn('I got it', async () => {
+        await ctx.store.setOverride(p.id, { owned: true });
+        toast(`${p.displayName}: owned`);
+        await keepScroll(ctx, el);
+      }, 'primary');
+      box.append(h('div', { class: 'want-card' }, img, h('div', { class: 'want-body' },
+        head, text('p', 'kid', x.reason), comboThumbs(x.combo, ctx.partsById), h('div', { class: 'want-acts' }, info, got))));
+    }
+  };
+  section('Ratchets and bits', list.filter((x) => x.part.kind !== 'blade'));
+  section('Blades', list.filter((x) => x.part.kind === 'blade'));
+  return box;
+}
 
 // ---------- reference: packaging stats and WBO results ----------
 

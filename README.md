@@ -27,6 +27,9 @@ Address (once published): https://smithan7.github.io/bey-lab/
   Tiles show the tier; **Sort by WBO tier** puts the best first.
 - **Next** adds **Idea** cards: untried combos from parts you own that WBO results and packaging
   stats favour. On **Combos → Edit → Suggest 3 variants** you get three versions of any combo.
+  On **Parts → Parts to look for** you get the parts you don't own that would most improve your top
+  combos (a better ratchet or bit for one of them, or a blade that beats your best combo of its type),
+  with what each would let you build. "I got it" marks the part owned.
 - The reference is a snapshot in `app/data/reference.json`. Refresh it with
   `node scripts/update-reference.mjs` (or ask Claude to "refresh the meta").
 
