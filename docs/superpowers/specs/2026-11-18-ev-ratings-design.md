@@ -66,6 +66,11 @@ pool, so one upset over a strong combo can't hide losses to everyone else.
   certain) × diagonal of `(XᵀX + λI)⁻¹` gives each rating's SE. Show `r ± 1.96·SE`.
 - Size is at most ~a few hundred combos, so a direct dense solve (Cholesky or Gauss–Jordan) is
   fine. Disconnected groups stay well-defined because of the ridge.
+- **Display centring (found while checking examples)**: only rating differences matter, but the
+  ridge lets a whole connected group slide relative to 0 when one surprising result arrives.
+  After fitting, subtract the mean rating of all rated combos, so a displayed rating means "EV
+  vs the average tested combo" and doesn't drift for unrelated reasons. Predictions are
+  unchanged.
 - Output: `ratings(state) → Map<comboId, { r, se, n, opponents }>`, where `n` is the battle count
   and `opponents` the number of distinct opponents faced.
 
