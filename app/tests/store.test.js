@@ -262,7 +262,8 @@ test('replaceCombo with unchanged parts is a no-op; unknown combo throws', async
   const s = await createStore(new MemoryBackend());
   const a = single('blade:a', 'ratchet:3-60', 'bit:flat');
   await s.upsertCombo(a);
-  assert.deepEqual((await s.replaceCombo(a.id, { ...a })).combos, [a]);
+  const made = s.state().combos[0].createdAt;
+  assert.deepEqual((await s.replaceCombo(a.id, { ...a })).combos, [{ ...a, createdAt: made }]);
   await assert.rejects(s.replaceCombo('single:nope', a), /Unknown combo/);
 });
 
@@ -278,4 +279,24 @@ test('deleteCombo removes an untested combo and its field entry, but refuses one
   const st = await s.deleteCombo(c.id);
   assert.deepEqual(st.combos.map((x) => x.id), [a.id, b.id]);
   assert.deepEqual(st.field, []);
+});
+
+test('upsertCombo stamps createdAt on new combos and keeps it on update', async () => {
+  const s = await createStore(new MemoryBackend());
+  const a = single('blade:a', 'ratchet:3-60', 'bit:flat');
+  const t0 = Date.now();
+  await s.upsertCombo(a);
+  const made = s.state().combos[0].createdAt;
+  assert.ok(made >= t0 && made <= Date.now());
+  await s.upsertCombo({ ...a, note: 'x' });
+  assert.equal(s.state().combos[0].createdAt, made);
+  assert.equal(a.createdAt, undefined, 'caller object untouched');
+});
+
+test('import of combos without createdAt succeeds and leaves it absent', async () => {
+  const s = await createStore(new MemoryBackend());
+  const a = single('blade:a', 'ratchet:3-60', 'bit:flat');
+  await s.importData({ app: 'bey-lab', version: 1, userParts: [], overrides: {}, combos: [a], battles: [], field: [{ comboId: a.id, active: true, core: true }] });
+  assert.equal(s.state().combos[0].createdAt, undefined);
+  assert.equal(s.state().field.length, 1);
 });

@@ -1,9 +1,6 @@
 // Lineup tab: the best legal 3-bey deck. Ranking runs in a module worker; getLineup is shared with the Next tab.
-import { comboLabel } from '../combo.js';
-import { comboLeaderboard } from '../lineup.js';
-import { makeRng } from '../rng.js';
+import { comboLabel, comboParts } from '../combo.js';
 import { h } from './pickers.js';
-import { toast } from './log.js';
 import { fmtEv, fmtPct } from './combos.js';
 
 function hashStr(s) {
@@ -12,12 +9,12 @@ function hashStr(s) {
   return x >>> 0;
 }
 
-// Deterministic key of everything that decides the ranking: every battle, the field,
+// Deterministic key of everything that decides the ranking: every battle,
 // the combo ids and which parts are owned (display names don't matter).
 export function lineupKey(state, parts) {
   const bats = state.battles.map((b) => `${b.id}|${b.winner}|${b.finish}|${b.points}|${b.left}|${b.right}`).join('\n');
   const owned = parts.filter((p) => p.owned).map((p) => p.id).sort().join(',');
-  return hashStr(`${bats}#${JSON.stringify(state.field)}#${state.combos.map((c) => c.id).join(',')}#${owned}`);
+  return hashStr(`${bats}#${state.combos.map((c) => c.id).join(',')}#${owned}`);
 }
 
 let worker = null;
@@ -97,7 +94,7 @@ export const tab = {
         status.textContent = 'Updating…';
         status.classList.add('updating');
         const prev = h('div', { class: 'stale', 'aria-busy': 'true' });
-        renderResult(ctx, prev, result, state, parts, { stale: true });
+        renderResult(ctx, prev, result, state, parts);
         el.append(prev);
       },
       onResult: ({ result, state, parts }) => {
@@ -114,19 +111,39 @@ export const tab = {
   },
 };
 
-function renderResult(ctx, el, result, state, parts, { stale = false } = {}) {
+// Rating table: every tested combo by EV rating, then untested owned combos.
+function leaderboard(el, rows, state, parts, label) {
+  el.append(h('h2', {}, 'Combo ratings'));
+  el.append(h('p', { class: 'muted' }, 'Rating = expected points per battle against the average tested combo. Beating strong combos counts for more.'));
+  const table = h('table', { class: 'rtable' });
+  table.append(h('thead', {}, h('tr', {}, ...['Combo', 'Rating [95%]', 'Battles', 'Opponents'].map((t) => h('th', {}, t)))));
+  const body = h('tbody');
+  for (const r of rows) {
+    body.append(h('tr', {}, h('th', { scope: 'row' }, label(r.comboId)), h('td', {}, `${fmtEv(r.r)} [${fmtEv(r.lo)}, ${fmtEv(r.hi)}]`),
+      h('td', {}, String(r.n)), h('td', {}, String(r.opponents))));
+  }
+  const rated = new Set(rows.map((r) => r.comboId));
+  const owned = new Set(parts.filter((p) => p.owned).map((p) => p.id));
+  for (const c of state.combos) {
+    if (rated.has(c.id) || !comboParts(c).every((p) => owned.has(p))) continue;
+    const tr = h('tr', {}, h('th', { scope: 'row' }, label(c.id)));
+    tr.append(h('td', { colspan: '3', class: 'muted' }, 'not yet tested'));
+    body.append(tr);
+  }
+  table.append(body);
+  el.append(h('div', { class: 'tscroll' }, table));
+}
+
+function renderResult(ctx, el, result, state, parts) {
   const partsById = new Map(parts.map((p) => [p.id, p]));
   const byId = new Map(state.combos.map((c) => [c.id, c]));
   const label = (id) => comboLabel(byId.get(id), partsById);
-  const activeField = new Set(state.field.filter((f) => f.active || f.core).map((f) => f.comboId));
 
-  if (result.fieldTooSmall) el.append(h('p', { class: 'chip flag' }, 'Add at least 3 combos to the field (Combos tab)'));
-  else if (!result.fieldLegal) {
-    el.append(h('p', { class: 'chip flag' }, "Your test field isn't a legal deck (shares parts) — results still valid as a yardstick"));
-  }
+  if (result.tooFew) el.append(h('p', { class: 'chip flag' }, 'Test at least 3 combos to rank decks.'));
+  else if (result.noLegal) el.append(h('p', { class: 'chip flag' }, 'No legal deck from your owned, tested combos yet.'));
 
   if (result.ranked.length) {
-    el.append(h('p', { class: 'muted' }, 'Best decks against your test field. Percentages are P(win the match) with 95% intervals.'));
+    el.append(h('p', { class: 'muted' }, 'Best decks against all tested combos. Percentages are P(win the match) with 95% intervals.'));
     const top = result.ranked.slice(0, 5);
     const first = top[0];
     if (first.differs) {
@@ -141,21 +158,7 @@ function renderResult(ctx, el, result, state, parts, { stale = false } = {}) {
       const card = h('article', { class: 'report', 'data-rank': String(i + 1) });
       card.append(h('h3', {}, `#${i + 1}`));
       const list = h('ol', {});
-      for (const id of r.deck) {
-        const li = h('li', {}, label(id));
-        if (i === 0 && !stale && !activeField.has(id)) {
-          const b = h('button', { type: 'button' }, 'Add to field');
-          b.addEventListener('click', async () => {
-            if (b.disabled) return;
-            b.disabled = true;
-            try { await ctx.store.setFieldEntry({ comboId: id, active: true, core: false }); } catch (e) { b.disabled = false; toast(`Not saved: ${e.message}`); return; }
-            toast(`${label(id)} added to the field`);
-            await ctx.refresh();
-          });
-          li.append(' ', b);
-        }
-        list.append(li);
-      }
+      for (const id of r.deck) list.append(h('li', {}, label(id)));
       card.append(list);
       for (const [name, key] of [['First-to-5', 'target5'], ['First-to-7', 'target7']]) {
         const bt = r.best[key];
@@ -163,42 +166,17 @@ function renderResult(ctx, el, result, state, parts, { stale = false } = {}) {
         card.append(h('p', {}, h('strong', {}, `${name}: ${pctText(bt)}`), ` — ${leadText}`));
         if (bt.lead != null) card.append(h('small', { class: 'muted' }, `Random order: ${pctText(r.randomOrder[key])}`), h('br'));
       }
+      const testedPct = Math.round((1 - (r.estimatedShare ?? 0)) * 100);
+      const est = (r.estimatedShare ?? 0) > 0.5;
+      card.append(h('p', { class: est ? 'chip flag' : 'muted' },
+        `Based on ${testedPct}% tested matchups${est ? ' — mostly estimated from ratings, test more to confirm' : ''}`));
+      // One mostly-estimated member can hide behind two well-tested ones, so name it.
+      (r.memberEstimated ?? []).forEach((share, m) => {
+        if (est || share <= 0.5) return;
+        card.append(h('p', { class: 'chip flag' }, `${label(r.deck[m])}: ${Math.round((1 - share) * 100)}% of its matchups tested — mostly estimated, test more to confirm`));
+      });
       el.append(card);
     });
-    return;
   }
-
-  // No ranked decks: explain what's missing.
-  if (!result.fieldTooSmall) {
-    el.append(h('p', {}, 'No deck can be ranked yet: every pairing between a deck member and the field needs data.'));
-  }
-  if (result.blocked.length) {
-    el.append(h('h2', {}, 'Closest decks'));
-    for (const b of result.blocked.slice(0, 5)) {
-      const card = h('article', { class: 'report' }, h('h3', {}, b.deck.map(label).join(' / ')));
-      card.append(h('p', { class: 'muted' }, `${b.missing.length} untested pairing${b.missing.length === 1 ? '' : 's'} — tap one to log it:`));
-      const chips = h('div', { class: 'chips' });
-      for (const [l, r] of b.missing) {
-        const chip = h('button', { type: 'button', class: 'chip' }, `${label(l)} vs ${label(r)}`);
-        chip.addEventListener('click', () => ctx.goTo('log', { left: l, right: r }));
-        chips.append(chip);
-      }
-      card.append(chips);
-      el.append(card);
-    }
-  }
-  const lb = comboLeaderboard(state, { rng: makeRng(7), draws: 500, raceSims: 0 });
-  if (lb.length) {
-    el.append(h('h2', {}, 'Combo leaderboard'));
-    const table = h('table', { class: 'rtable' });
-    table.append(h('thead', {}, h('tr', {}, ...['Combo', 'EV [95%]', 'Tested'].map((t) => h('th', {}, t)))));
-    const body = h('tbody');
-    for (const r of lb) {
-      const ci = r.evCI && r.evCI.every(Number.isFinite) ? `[${fmtEv(r.evCI[0])}, ${fmtEv(r.evCI[1])}]` : '[n/a]';
-      body.append(h('tr', {}, h('th', { scope: 'row' }, label(r.comboId)), h('td', {}, `${fmtEv(r.ev)} ${ci}`),
-        h('td', {}, `${r.tested}/${r.of}`)));
-    }
-    table.append(body);
-    el.append(h('div', { class: 'tscroll' }, table));
-  }
+  if (result.ratings?.length || state.combos.length) leaderboard(el, result.ratings ?? [], state, parts, label);
 }

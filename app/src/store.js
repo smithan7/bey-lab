@@ -238,11 +238,15 @@ export async function createStore(backend) {
       return commit(next, () => backend.del('battles', victim.id));
     },
 
+    // New combos get createdAt (ms) so Next can screen the newest first; updates keep it.
     async upsertCombo(c) {
-      const combos = current.combos.some((x) => x.id === c.id)
-        ? current.combos.map((x) => (x.id === c.id ? clone(c) : x))
-        : [...current.combos, clone(c)];
-      return commit({ ...current, combos }, () => backend.put('combos', c));
+      const prev = current.combos.find((x) => x.id === c.id);
+      const createdAt = c.createdAt ?? prev?.createdAt ?? (prev ? undefined : Date.now());
+      const rec = createdAt === undefined ? clone(c) : { ...clone(c), createdAt };
+      const combos = prev
+        ? current.combos.map((x) => (x.id === c.id ? rec : x))
+        : [...current.combos, rec];
+      return commit({ ...current, combos }, () => backend.put('combos', rec));
     },
 
     async setOverride(partId, patch) {
@@ -276,7 +280,7 @@ export async function createStore(backend) {
       const exists = current.combos.some((c) => c.id === newId);
       const combos = exists
         ? current.combos.filter((c) => c.id !== oldId)
-        : current.combos.map((c) => (c.id === oldId ? clone(combo) : c));
+        : current.combos.map((c) => (c.id === oldId ? { ...clone(combo), ...(c.createdAt !== undefined && combo.createdAt === undefined ? { createdAt: c.createdAt } : {}) } : c));
       const remap = (id) => (id === oldId ? newId : id);
       const battles = current.battles.map((b) => (b.left === oldId || b.right === oldId
         ? { ...b, left: remap(b.left), right: remap(b.right) } : b));

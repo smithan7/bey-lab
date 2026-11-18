@@ -1,4 +1,4 @@
-import { battleScore, outcomeCounts } from './scoring.js';
+import { OUTCOMES, battleScore, outcomeCounts } from './scoring.js';
 
 const involves = (b, id) => b.left === id || b.right === id;
 
@@ -53,4 +53,62 @@ export function comboFlags(br) {
   if ((br.lost.pocket + br.lost.xtreme) / br.n >= 0.3) flags.push('ko-risk');
   if (br.n < 10) flags.push('low-data');
   return flags;
+}
+
+// ---- Rating-based distributions (fill untested pairings, steady thin ones) ----
+
+// Pseudo-battles of the rating prediction added to a tested pairing / used for an untested one.
+export const K_TESTED = 2;
+export const K_UNTESTED = 2;
+// Predicted means are clamped to ±TILT_CLAMP so a tilt stays a real distribution.
+export const TILT_CLAMP = 2.5;
+const SMOOTH = 0.02;
+const SPIN_ONLY = [0, 0, 0.5, 0, 0.5, 0, 0];
+
+// a's normalised outcome shape over all its battles (a's side); null with no decisive result.
+export function pooledShape(battles, a) {
+  const scores = pooledScores(battles, a);
+  if (!scores.some((s) => s !== 0)) return null;
+  const c = outcomeCounts(scores);
+  return c.map((x) => x / scores.length);
+}
+
+// Exponential tilt: p_k ∝ shape_k·exp(θ·o_k), θ chosen by bisection so the mean equals target.
+export function tilt(shape, target) {
+  const t = Math.max(-TILT_CLAMP, Math.min(TILT_CLAMP, target));
+  const base = shape.map((x) => x + SMOOTH);
+  const at = (th) => {
+    const w = base.map((x, k) => x * Math.exp(th * OUTCOMES[k]));
+    const s = w.reduce((a, b) => a + b, 0);
+    return w.map((x) => x / s);
+  };
+  const mean = (p) => p.reduce((s, x, k) => s + x * OUTCOMES[k], 0);
+  let lo = -20, hi = 20;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (mean(at(mid)) < t) lo = mid; else hi = mid;
+  }
+  return at((lo + hi) / 2);
+}
+
+const rOf = (ratings, id) => ratings.get(id)?.r ?? 0;
+
+// Predicted outcome probabilities for a vs b (a's side): both combos' finish habits, tilted to
+// the rating difference.
+export function predictedDistribution(battles, ratings, a, b) {
+  const sa = pooledShape(battles, a);
+  const sbRaw = pooledShape(battles, b);
+  const sb = sbRaw ? sbRaw.slice().reverse() : null;
+  const shape = sa && sb ? sa.map((x, k) => (x + sb[k]) / 2) : (sa ?? sb ?? SPIN_ONLY);
+  return tilt(shape, rOf(ratings, a) - rOf(ratings, b));
+}
+
+// Simulator cell { counts, n, estimated }: observed counts plus K_TESTED predicted
+// pseudo-battles, or K_UNTESTED predicted pseudo-battles when the pairing is untested.
+export function ratedDistribution(battles, ratings, a, b) {
+  if (a === b) return { ...pairingDistribution(battles, a, a), estimated: false };
+  const pred = predictedDistribution(battles, ratings, a, b);
+  const obs = pairingDistribution(battles, a, b);
+  if (!obs) return { counts: pred.map((x) => x * K_UNTESTED), n: K_UNTESTED, estimated: true };
+  return { counts: obs.counts.map((c, k) => c + K_TESTED * pred[k]), n: obs.n + K_TESTED, estimated: false };
 }

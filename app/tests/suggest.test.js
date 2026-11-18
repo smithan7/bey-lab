@@ -5,8 +5,9 @@ import { buildSeed } from '../src/seed.js';
 import { normalizeCatalog, mergeParts } from '../src/catalog.js';
 import { comboLabel, comboParts, isLegalDeck, validateCombo, comboId } from '../src/combo.js';
 import { makeRng } from '../src/rng.js';
-import { rankLineups, fieldCombos } from '../src/lineup.js';
-import { suggestTests } from '../src/suggest.js';
+import { rankLineups } from '../src/lineup.js';
+import { suggestTests, MAX_SCREEN } from '../src/suggest.js';
+import { ratingsLeaderboard } from '../src/ratings.js';
 
 const catalog = normalizeCatalog(JSON.parse(readFileSync(new URL('../data/parts-catalog.json', import.meta.url), 'utf8')));
 const seed = buildSeed(catalog);
@@ -14,7 +15,6 @@ const parts = mergeParts(catalog, seed.userParts, seed.overrides);
 const byId = new Map(parts.map((p) => [p.id, p]));
 const label = (c) => comboLabel(c, byId);
 const FAST = { screenMatches: 200, refineOuter: 40, refineInner: 20 };
-const OPTS = { draws: 200, raceSims: 200 };
 
 const ownedIds = new Set(parts.filter((p) => p.owned).map((p) => p.id));
 function assertOwnedOrReplaced(fix) {
@@ -22,21 +22,8 @@ function assertOwnedOrReplaced(fix) {
   for (const p of comboParts(fix.left)) assert.ok(ownedIds.has(p) || old.has(p), `not owned: ${p}`);
 }
 
-const lineup = rankLineups(seed, parts, { rng: makeRng(7), ...FAST, leaderboardOptions: OPTS });
-const sugg = suggestTests(seed, parts, lineup, { rng: makeRng(8), ...OPTS });
-
-test('baseline suggestions come first and cover the core field pairs', () => {
-  assert.ok(sugg.length <= 8);
-  const first = sugg.slice(0, 3);
-  assert.ok(first.every((s) => s.kind === 'baseline' && s.battles === 10));
-  const pairs = first.map((s) => [label(s.left), label(s.right)].sort().join(' | '));
-  const want = [
-    ['Wizard Rod 2-60 Gear Ball', 'Cobalt Drake 1-60 Free Flat'],
-    ['Wizard Rod 2-60 Gear Ball', 'Pegasus Blast 2-60 Free Ball'],
-    ['Cobalt Drake 1-60 Free Flat', 'Pegasus Blast 2-60 Free Ball'],
-  ];
-  for (const w of want) assert.ok(pairs.includes([...w].sort().join(' | ')), `missing ${w}`);
-});
+const lineup = rankLineups(seed, parts, { rng: makeRng(7), ...FAST });
+const sugg = suggestTests(seed, parts, lineup);
 
 test('every suggestion is a valid, unique pair of full combos', () => {
   const seen = new Set();
@@ -52,52 +39,8 @@ test('every suggestion is a valid, unique pair of full combos', () => {
   }
 });
 
-test('burst-risk fix swaps the bit on Pegasus Blast Pop Out', () => {
-  const fix = sugg.find((s) => s.kind === 'fix' && /burst/.test(s.reason) && s.left.blade.type === 'cx');
-  assert.ok(fix, 'no burst fix');
-  assert.notEqual(fix.left.bit, 'bit:pop-out-unverified');
-  assert.match(fix.reason, /^Pegasus Blast 2-60 Pop Out \(unverified\) was burst in 5 of 20 battles — test a different bit\./);
-  assertOwnedOrReplaced(fix);
-  assert.equal(fix.left.bit, 'bit:turbo');
-  assert.equal(fix.left.ratchet, null);
-  assert.equal(fix.replaces, seed.combos.find((c) => label(c) === 'Pegasus Blast 2-60 Pop Out (unverified)').id);
-  // Pop Out is not in the field, so this fix must not offer a field swap.
-  assert.ok(!fieldCombos(seed).includes(fix.replaces));
-  assert.equal(fix.replacesInField, null);
-});
-
-test('only field-clash fixes carry a field replacement', () => {
-  const field = fieldCombos(seed);
-  for (const s of sugg) {
-    if (s.replacesInField == null) continue;
-    assert.equal(s.kind, 'fix');
-    assert.ok(field.includes(s.replacesInField), 'replacesInField must be an active field combo');
-    assert.match(s.reason, /shares .* with another field combo/);
-  }
-  assert.ok(sugg.some((s) => s.replacesInField), 'the seed field clash fix should offer a swap');
-});
-
-test('field-illegal fix makes the field legal with owned parts', () => {
-  const field = fieldCombos(seed);
-  assert.equal(lineup.fieldLegal, false);
-  const fix = sugg.find((s) => s.kind === 'fix' && s.replacesInField);
-  assert.ok(fix, 'no field fix');
-  assert.equal(fix.replacesInField, fix.replaces);
-  const next = field.map((id) => (id === fix.replaces ? fix.left : seed.combos.find((c) => c.id === id)));
-  assert.ok(isLegalDeck(next));
-  assert.ok(fix.right && fieldCombos(seed).includes(fix.right.id));
-  assertOwnedOrReplaced(fix);
-  assert.equal(fix.left.bit, 'bit:turbo');
-  assert.equal(fix.left.ratchet, null);
-});
-
-test('shared part is called out in the reason', () => {
-  const s = sugg.find((x) => x.kind === 'baseline' && /Wizard Rod/.test(label(x.left) + label(x.right)) && /Pegasus/.test(label(x.left) + label(x.right)));
-  assert.match(s.reason, /\(needs two of 2-60\)$/);
-});
-
 test('empty state yields no suggestions', () => {
-  assert.deepEqual(suggestTests({ combos: [], battles: [], field: [] }, parts, { ranked: [], blocked: [] }), []);
+  assert.deepEqual(suggestTests({ combos: [], battles: [], field: [] }, parts, { ranked: [] }), []);
 });
 
 // ---- synthetic states for the other tiers ----
@@ -110,62 +53,115 @@ const bat = (left, right, pts, finish) => ({
   points: Math.abs(pts), note: '', ts: bn,
 });
 const many = (l, r, list) => list.map((p) => bat(l, r, p));
-const mkState = (battles, coreIds, extraIds = []) => ({
-  ...seed, battles,
-  field: [...coreIds.map((c) => ({ comboId: c, active: true, core: true })), ...extraIds.map((c) => ({ comboId: c, active: true, core: false }))],
-});
-const none = { ranked: [], blocked: [] };
-const ORDER = ['baseline', 'blocking', 'stage1', 'stage2', 'fix', 'narrow'];
-const tierOk = (list) => list.every((s, i) => i === 0 || ORDER.indexOf(list[i - 1].kind) <= ORDER.indexOf(s.kind));
+const mkState = (battles, combos = seed.combos) => ({ ...seed, combos, battles });
+const none = { ranked: [] };
+const ORDER = ['screen', 'contender', 'topcheck', 'fix', 'narrow'];
+const kindOk = (list) => list.every((s, i) => i === 0 || ORDER.indexOf(list[i - 1].kind) <= ORDER.indexOf(s.kind));
 const idsOf = (s) => [s.left.id, s.right.id].sort().join('|');
+const pair = (a, b) => [a, b].sort().join('|');
+const withRatings = (st, ranked) => ({ ranked, ratings: ratingsLeaderboard(st) });
 
-test('blocking: missing pairings of blocked decks', () => {
-  const st = mkState(many(H, W, [1, -1]), []);
-  const out = suggestTests(st, parts, { ranked: [], blocked: [{ deck: [H, O, G], missing: [[H, O]] }] });
-  assert.deepEqual(out.map((s) => [s.kind, idsOf(s)]), [['blocking', [H, O].sort().join('|')]]);
+test('seed suggestions are in kind order with no old kinds', () => {
+  assert.ok(sugg.length > 0 && sugg.length <= 8);
+  assert.ok(kindOk(sugg));
+  for (const s of sugg) assert.ok(ORDER.includes(s.kind), s.kind);
 });
 
-test('stage1: candidate missing a core pairing', () => {
-  const st = mkState([...many(H, W, [1, -1]), ...many(W, C, [1, -1])], [W, C]);
-  const out = suggestTests(st, parts, none);
-  assert.deepEqual(out.map((s) => [s.kind, idsOf(s)]), [['stage1', [H, C].sort().join('|')]]);
+test('screen: newest untested owned combos first, one each, at most 3', () => {
+  // Hulk, Pop Out and Griffon tested; Wizard, Cobalt, Pegasus untested (seed parts are owned).
+  const st = mkState([...many(H, O, [1, -1, 2]), ...many(G, H, [1, 1, -1])]);
+  st.combos = st.combos.map((c) => (c.id === W ? { ...c, createdAt: 1 } : c.id === C ? { ...c, createdAt: 3 } : c));
+  const out = suggestTests(st, parts, withRatings(st, []));
+  const screens = out.filter((s) => s.kind === 'screen');
+  assert.equal(MAX_SCREEN, 3);
+  assert.deepEqual(screens.map((s) => s.left.id), [C, W, P]);
+  // Opponent: the strongest tested combo.
+  const lb = ratingsLeaderboard(st);
+  for (const s of screens) assert.ok(lb.slice(0, 2).map((r) => r.comboId).includes(s.right.id));
 });
 
-test('stage2: close candidates missing a non-core pairing; untested combos are skipped', () => {
-  const st = mkState([...many(H, W, [1, -1, 1, -1]), ...many(W, C, [1, -1, 1, 1]), ...many(G, W, [1, -1, 1, -1])], [W], [C]);
-  const out = suggestTests(st, parts, { ranked: [{ deck: [W, H, P] }], blocked: [] });
-  const s2 = out.filter((s) => s.kind === 'stage2').map(idsOf);
-  assert.ok(s2.includes([G, C].sort().join('|')));
-  assert.ok(!out.some((s) => [s.left.id, s.right.id].includes(P) && s.kind === 'stage2'));
-  assert.ok(tierOk(out));
+test('screen caps at MAX_SCREEN and skips combos with unowned parts', () => {
+  const extra = ['dran-dagger', 'leon-claw', 'shark-edge'].map((b) => {
+    const c = { blade: { type: 'single', bladeId: `blade:${b}` }, ratchet: 'ratchet:3-60', bit: 'bit:flat' };
+    return { ...c, id: comboId(c), createdAt: 99 };
+  });
+  const st = mkState(many(H, O, [1, -1]), [...seed.combos, ...extra]);
+  const out = suggestTests(st, parts, withRatings(st, []));
+  const screens = out.filter((s) => s.kind === 'screen');
+  assert.equal(screens.length, 3);
+  for (const s of screens) assert.ok(!extra.some((e) => e.id === s.left.id), 'unowned combo screened');
 });
 
-test('narrow: n=1 and wide intervals are narrow; tight ones are not', () => {
-  const st = mkState([...many(W, C, [1]), ...many(W, P, [3, -3, 3, -3]), ...many(C, P, [1, 1, 1, 1, 1, 1])], [W, C, P]);
-  const out = suggestTests(st, parts, { ranked: [{ deck: [W, C, P] }], blocked: [] });
-  const nar = out.filter((s) => s.kind === 'narrow').map(idsOf);
-  assert.ok(nar.includes([W, C].sort().join('|')));
-  assert.ok(nar.includes([W, P].sort().join('|')));
-  assert.ok(!nar.includes([C, P].sort().join('|')));
+test('contender: range reaching the #1 deck gets its strongest unfaced opponent; lower ones get nothing', () => {
+  // H strong vs everyone; G weak. #1 deck [H, O, P]; candidate W close; candidate C far below.
+  const b = [...many(H, O, [2, 2, 1, 2]), ...many(H, P, [2, 1, 2, 2]), ...many(O, P, [1, -1, 1, -1]),
+    ...many(W, O, [1, -1, 1]), ...many(C, H, Array(20).fill(-3)), ...many(C, O, Array(20).fill(-3)), ...many(C, P, Array(20).fill(-3))];
+  const st = mkState(b);
+  const out = suggestTests(st, parts, withRatings(st, [{ deck: [H, O, P] }]));
+  const cont = out.filter((s) => s.kind === 'contender');
+  assert.ok(cont.some((s) => s.left.id === W && s.right.id === H), JSON.stringify(cont.map(idsOf)));
+  assert.ok(!cont.some((s) => s.left.id === C));
+  assert.ok(!out.some((s) => s.kind === 'fix' && s.replaces === C));
 });
 
-test('ko-risk fix swaps the bit of Rocket Griffon', () => {
-  const st = mkState([...many(G, W, [-3, -3, -3, -3, 1, 1, 1, 1, 1, 1])], [W]);
-  const out = suggestTests(st, parts, none);
+test('contender who has faced everyone gets its least-tested opponent', () => {
+  const b = [...many(W, C, [1, 1, 1, 1, 1]), ...many(W, P, [1]), ...many(C, P, [1, -1, 1, -1])];
+  const st = mkState(b, seed.combos.filter((c) => [W, C, P].includes(c.id)));
+  const out = suggestTests(st, parts, withRatings(st, []));
+  const s = out.find((x) => x.kind === 'contender' && x.left.id === W);
+  assert.ok(s);
+  assert.equal(s.right.id, P);
+});
+
+test('no ranked deck: every tested candidate is a contender, ordered by upper bound', () => {
+  const b = [...many(W, C, [2, 2, 2]), ...many(P, H, [1, -1])];
+  const st = mkState(b);
+  const out = suggestTests(st, parts, withRatings(st, []));
+  const cont = out.filter((s) => s.kind === 'contender').map((s) => s.left.id);
+  const lb = ratingsLeaderboard(st);
+  const hi = new Map(lb.map((r) => [r.comboId, r.hi]));
+  for (let i = 1; i < cont.length; i++) assert.ok(hi.get(cont[i - 1]) >= hi.get(cont[i]));
+  assert.ok(cont.includes(W));
+});
+
+test('topcheck: #1 member thinly tested vs a strong opponent, strongest first', () => {
+  const b = [...many(G, O, [3, 3, 3, 3, 3, 3]), ...many(G, H, [3, 3, 3, 3, 3]), ...many(W, H, [1, -1, 1, -1, 1, -1]), ...many(W, O, [1, -1, 1, -1, 1, -1]),
+    ...many(C, O, [1, -1, 1, -1, 1, -1]), ...many(P, O, [1, -1, 1, -1, 1, -1])];
+  const st = mkState(b);
+  const out = suggestTests(st, parts, withRatings(st, [{ deck: [W, C, P] }]));
+  const tc = out.filter((s) => s.kind === 'topcheck');
+  assert.ok(tc.length > 0);
+  assert.equal(tc[0].right.id, G); // G is the strongest opponent
+  assert.match(tc[0].reason, /no battles against/);
+});
+
+test('narrow: wide intervals past the top-deck check are narrow; tight ones are not', () => {
+  const st = mkState([...many(W, C, [1]), ...many(W, P, [3, -3, 3, -3, 3, -3]), ...many(C, P, [1, 1, 1, 1, 1, 1])],
+    seed.combos.filter((c) => [W, C, P].includes(c.id)));
+  const out = suggestTests(st, parts, withRatings(st, [{ deck: [W, C, P] }]));
+  const kindOf = new Map(out.map((s) => [idsOf(s), s.kind]));
+  assert.equal(kindOf.get(pair(W, C)), 'topcheck'); // 1 battle: under-tested
+  assert.equal(kindOf.get(pair(W, P)), 'narrow'); // 6 battles, wide interval
+  assert.ok(!kindOf.has(pair(C, P)));
+});
+
+test('ko-risk fix swaps the bit of Rocket Griffon when it is in the #1 deck', () => {
+  const st = mkState([...many(G, W, [-3, -3, -3, -3, 1, 1, 1, 1, 1, 1])]);
+  const out = suggestTests(st, parts, withRatings(st, [{ deck: [G, C, H] }]));
   const fix = out.find((s) => s.kind === 'fix' && s.replaces === G);
   assert.ok(fix);
   assert.match(fix.reason, /^Rocket Griffon Hexa was knocked out \(Pocket or Xtreme\) in 4 of 10 battles — test a different bit\./);
   assert.notEqual(fix.left.bit, 'bit:hexa');
   assert.equal(validateCombo(fix.left, byId), null);
-  assert.equal(fix.replacesInField, null);
+  assertOwnedOrReplaced(fix);
 });
 
 test('a zero-clash ratchet swap beats a clashing bit swap', () => {
   const only = new Set(['bit:pop-out-unverified', 'bit:free-flat', 'bit:low-rush']);
   const ps = parts.map((p) => (p.kind === 'bit' ? { ...p, owned: only.has(p.id) } : p.id === 'ratchet:3-60' ? { ...p, owned: true } : p));
-  const st = mkState([...many(O, W, [-2, -2, -2, -2, -2, 1]), ], [W]);
+  const st = mkState([...many(O, W, [-2, -2, -2, -2, -2, 1])]);
   st.battles.forEach((b) => { if (b.points === 2) b.finish = 'burst'; });
-  const out = suggestTests(st, ps, { ranked: [{ deck: [O, C, H] }], blocked: [] });
+  const out = suggestTests(st, ps, withRatings(st, [{ deck: [O, C, H] }]));
   const fix = out.find((s) => s.kind === 'fix' && s.replaces === O);
   assert.ok(fix);
   assert.equal(fix.left.bit, 'bit:pop-out-unverified');
@@ -173,11 +169,21 @@ test('a zero-clash ratchet swap beats a clashing bit swap', () => {
   assert.match(fix.reason, /different ratchet/);
 });
 
-test('cap of 8, tier order, and no duplicates', () => {
-  const st = mkState([], [W, C, P, H, O, G]);
-  const out = suggestTests(st, parts, none);
+test('cap of 8, kind order, and no duplicates', () => {
+  const b = [];
+  const ids = [W, C, P, H, O, G];
+  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) b.push(...many(ids[i], ids[j], [1]));
+  const st = mkState(b);
+  const out = suggestTests(st, parts, withRatings(st, [{ deck: [W, C, H] }]));
   assert.equal(out.length, 8);
-  assert.ok(tierOk(out));
+  assert.ok(kindOk(out));
   assert.equal(new Set(out.map(idsOf)).size, 8);
-  assert.ok(tierOk(sugg));
+});
+
+test('no battles at all: untested owned combos are screened against each other', () => {
+  const st = mkState([]);
+  const out = suggestTests(st, parts, { ranked: [], ratings: [] });
+  const screens = out.filter((s) => s.kind === 'screen');
+  assert.equal(screens.length, 3);
+  for (const s of screens) assert.notEqual(s.left.id, s.right.id);
 });

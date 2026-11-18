@@ -17,14 +17,14 @@ test('lineupKey is stable for identical input', () => {
   assert.equal(lineupKey(x.state, x.parts), lineupKey(y.state, y.parts));
 });
 
-test('lineupKey changes with ownership, battle finish at same count, and field', () => {
+test('lineupKey changes with ownership and battle finish at same count; ignores field edits', () => {
   const k0 = lineupKey(base().state, base().parts);
   const own = base(); own.parts[1].owned = true;
   assert.notEqual(lineupKey(own.state, own.parts), k0);
   const fin = base(); fin.state.battles[1].finish = 'pocket';
   assert.notEqual(lineupKey(fin.state, fin.parts), k0);
   const fld = base(); fld.state.field[0].core = true;
-  assert.notEqual(lineupKey(fld.state, fld.parts), k0);
+  assert.equal(lineupKey(fld.state, fld.parts), k0);
 });
 
 test('lineupKey ignores display names', () => {

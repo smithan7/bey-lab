@@ -7,6 +7,17 @@ everything on the iPad itself (no account, nothing is sent anywhere).
 
 Address (once published): https://smithan7.github.io/bey-lab/
 
+## How the best deck is picked
+
+- Every combo you've logged a battle with gets a **rating**: how many points it's expected to
+  score per battle against the average tested combo. Beating a strong combo raises it more than
+  beating a weak one, and a combo needs several battles before its rating moves far from 0.
+- **Lineup** ranks legal decks (no shared parts) by their chance of winning a match against all
+  tested combos. Matchups you haven't tested yet are estimated from the ratings, and each deck
+  says how much of it rests on tested matchups.
+- **Next** suggests what to test: new combos first, then combos that could make the best deck,
+  then gaps in the best deck. Combos rated well below the best deck stop being suggested.
+
 ## Install on the iPad
 
 1. Open the address above in **Safari** (it has to be Safari).
