@@ -1,5 +1,5 @@
 // Next-test suggestions. Pure: reads the lineup result and the data, runs no match simulation.
-import { blockingParts, comboId, comboParts, comboLabel, validateCombo } from './combo.js';
+import { blockingParts, comboId, comboParts, comboLabel, partRefName, validateCombo } from './combo.js';
 import { comboFlags, finishBreakdown, pairingScores } from './matchups.js';
 import { fitModel, ratingsLeaderboard } from './ratings.js';
 import { candidateCombos, enumerateLegalDecks, opponentCombos } from './lineup.js';
@@ -7,6 +7,9 @@ import { candidateCombos, enumerateLegalDecks, opponentCombos } from './lineup.j
 export const MAX_SUGGESTIONS = 8;
 export const MAX_SCREEN = 3;
 export const MAX_FIX = 2;
+export const MAX_UNLOCK = 2;
+// How many of the highest-rated owned combos are checked for clashes that keep them apart.
+export const UNLOCK_TOP = 5;
 // Battles per suggested test, and the look-ahead's batch size.
 export const BATCH = 10;
 // Upsets below this chance of changing the best deck aren't shown.
@@ -144,6 +147,53 @@ export function suggestTests(state, parts, lineupResult) {
     const pool = opponents.length ? opponents : fresh.map((x) => x.id);
     const opp = pool.find((o) => o !== c.id && !sharesParts(c.id, o));
     if (opp && addPair('screen', c.id, opp, `${label(c)} hasn't been tested yet — start with the strongest combo it can face.`)) screens++;
+  }
+
+  // 1b. Unlock: two top-rated combos that can't share a deck because of a ratchet or bit.
+  // Suggest a version of one (the lower-rated first) with that part swapped for another owned
+  // one, preferring parts the other top combos don't use. Deck rules ignore "have multiple".
+  const ownedOfKind = (kind) => owned.filter((p) => p.kind === kind);
+  const topOwned = candidates.filter((id) => rating.has(id)).sort((a, b) => rOf(b) - rOf(a)).slice(0, UNLOCK_TOP);
+  const deckClash = (x, y) => { const px = new Set(comboParts(x)); return comboParts(y).filter((q) => px.has(q)); };
+  function* swaps(combo, partId) {
+    const bladeBuiltIn = combo.blade.type === 'single' && partsById.get(combo.blade.bladeId)?.builtInRatchet;
+    if (combo.ratchet === partId) {
+      for (const r of ownedOfKind('ratchet')) if (r.id !== partId) yield withId({ ...combo, ratchet: r.id });
+    } else if (combo.bit === partId) {
+      for (const b of ownedOfKind('bit')) {
+        if (b.id === partId) continue;
+        if (b.ratchetIntegrated) yield withId({ ...combo, ratchet: null, bit: b.id });
+        else if (combo.ratchet || bladeBuiltIn) yield withId({ ...combo, bit: b.id });
+      }
+    }
+  }
+  function unlockFor(move, keep) {
+    const shared = deckClash(move, keep);
+    if (shared.length !== 1) return null; // one swap must free them
+    const others = topOwned.filter((id) => id !== move.id && id !== keep.id).map((id) => combosById.get(id));
+    // Ratchet height (the "-60" in 1-60): keeping it changes the combo least.
+    const height = (id) => partsById.get(id)?.kind === 'ratchet' ? String(partsById.get(id).name ?? id).split('-')[1] : null;
+    const h0 = height(shared[0]);
+    let best = null;
+    for (const v of swaps(move, shared[0])) {
+      if (validateCombo(v, partsById) || rating.has(v.id) || deckClash(v, keep).length) continue;
+      const clash = others.reduce((t, o) => t + deckClash(v, o).length, 0);
+      const off = h0 && height(v.ratchet) !== h0 ? 1 : 0;
+      if (!best || clash < best.clash || (clash === best.clash && off < best.off)) best = { v, clash, off };
+    }
+    return best && { variant: best.v, part: shared[0], move, keep };
+  }
+  let unlocks = 0;
+  for (let x = 0; x < topOwned.length && unlocks < MAX_UNLOCK; x++) {
+    for (let y = x + 1; y < topOwned.length && unlocks < MAX_UNLOCK; y++) {
+      const hi = combosById.get(topOwned[x]), lo = combosById.get(topOwned[y]);
+      const u = unlockFor(lo, hi) ?? unlockFor(hi, lo);
+      if (!u) continue;
+      const opp = opponents.find((o) => o !== u.variant.id && !blockingParts(u.variant, combosById.get(o), partsById).length);
+      if (!opp) continue;
+      const reason = `${label(hi)} and ${label(lo)} both need ${partRefName(partsById, u.part)}, so they can't be in the same deck. Try ${label(u.variant)}: if it holds up, you can run both.`;
+      if (add('unlock', u.variant, combosById.get(opp), reason, u.move.id)) unlocks++;
+    }
   }
 
   // 2. Fix (added after the upsets): burst-risk / ko-risk part swaps for #1 deck members, at most MAX_FIX.
