@@ -38,23 +38,37 @@ export function ratingShift(model, a, b, n, sbar) {
   return model.r.map((x, k) => x + g * u[k]);
 }
 
-/**
- * For every runnable matchup (both combos rated and fully owned, no shared parts): the chance
- * that n more battles change the best deck (the legal three with the highest summed rating).
- * The batch mean is s̄ ~ N(μ, σ²(1/n + q)), and every deck's summed rating moves linearly in that
- * one normal variable, so the chance is exact: Φ(z_lo) + 1 − Φ(z_hi).
- * Returns [{ a, b, p }], highest p first.
- */
-export function upsetChances(state, parts, { model = fitModel(state.battles), n = BATCH, maxDecks = LOOKAHEAD_DECKS } = {}) {
-  if (!model) return [];
+// Legal decks of rated, owned combos by summed rating (highest first), at most maxDecks.
+function ratedDecks(state, parts, model, maxDecks) {
   const combosById = new Map((state.combos ?? []).map((c) => [c.id, c]));
-  const partsById = new Map(parts.map((p) => [p.id, p]));
   const cands = candidateCombos(state, parts).filter((id) => model.idx.has(id));
   const rOf = (id) => model.r[model.idx.get(id)];
   const decks = enumerateLegalDecks(cands, combosById)
     .map((d) => ({ d, s: d.reduce((t, id) => t + rOf(id), 0) }))
     .sort((x, y) => y.s - x.s)
     .slice(0, maxDecks);
+  return { cands, decks, combosById };
+}
+
+// The deck the look-ahead treats as best: the legal three with the highest summed rating.
+export function lookaheadDeck(state, parts, model = fitModel(state.battles), maxDecks = LOOKAHEAD_DECKS) {
+  if (!model) return null;
+  return ratedDecks(state, parts, model, maxDecks).decks[0]?.d ?? null;
+}
+
+/**
+ * For every runnable matchup (both combos rated and fully owned, no part you have only one of
+ * shared): the chance that n more battles change the best deck (the legal three with the
+ * highest summed rating). The batch mean is s̄ ~ N(μ, σ²(1/n + q)), and every deck's summed
+ * rating moves linearly in that one normal variable z, so the chance is exact:
+ * Φ(z_lo) + 1 − Φ(z_hi). up / down: the deck that takes over if a does better than expected
+ * (z > z_hi) / worse (z < z_lo), or null.
+ * Returns [{ a, b, p, zlo, zhi, up, down }], highest p first.
+ */
+export function upsetChances(state, parts, { model = fitModel(state.battles), n = BATCH, maxDecks = LOOKAHEAD_DECKS } = {}) {
+  if (!model) return [];
+  const partsById = new Map(parts.map((p) => [p.id, p]));
+  const { cands, decks, combosById } = ratedDecks(state, parts, model, maxDecks);
   if (decks.length < 2) return [];
   const best = decks[0];
   const out = [];
@@ -68,14 +82,14 @@ export function upsetChances(state, parts, { model = fitModel(state.battles), n 
     const kz = (n / (1 + n * q)) * Math.sqrt(model.sigma2 * (1 / n + q));
     const U = (d) => d.reduce((t, id) => t + u[model.idx.get(id)], 0);
     const uBest = U(best.d);
-    let zlo = -Infinity, zhi = Infinity;
+    let zlo = -Infinity, zhi = Infinity, up = null, down = null;
     for (let k = 1; k < decks.length; k++) {
       const gap = best.s - decks[k].s; // ≥ 0
       const slope = kz * (U(decks[k].d) - uBest);
-      if (slope > 1e-12) zhi = Math.min(zhi, gap / slope);
-      else if (slope < -1e-12) zlo = Math.max(zlo, gap / slope);
+      if (slope > 1e-12 && gap / slope < zhi) { zhi = gap / slope; up = decks[k].d; }
+      else if (slope < -1e-12 && gap / slope > zlo) { zlo = gap / slope; down = decks[k].d; }
     }
-    out.push({ a, b, p: phi(zlo) + 1 - phi(zhi) });
+    out.push({ a, b, p: phi(zlo) + 1 - phi(zhi), zlo, zhi, up, down });
   }
   return out.sort((x, y) => y.p - x.p);
 }
@@ -201,12 +215,24 @@ export function suggestTests(state, parts, lineupResult) {
 
   // 3. Upset: the matchups most likely to change the best deck. Room is kept for the fixes there are.
   const upsetRoom = () => MAX_SUGGESTIONS - out.length - Math.min(MAX_FIX, fixes.length);
-  for (const { a, b, p } of upsetChances(state, parts)) {
+  const model = fitModel(battles);
+  const bestNow = model ? lookaheadDeck(state, parts, model) : null;
+  const nameOf = (id) => label(combosById.get(id));
+  const list = (ids) => ids.map(nameOf).join(' and ');
+  // "If A does well, X could replace Y." from the deck that would take over.
+  const change = (who, how, deck) => {
+    if (!deck || !bestNow) return '';
+    const inn = deck.filter((id) => !bestNow.includes(id));
+    const out = bestNow.filter((id) => !deck.includes(id));
+    const incoming = inn.length === 1 && inn[0] === who ? 'it' : list(inn);
+    return inn.length ? ` If ${nameOf(who)} does ${how}, ${incoming} could replace ${list(out)}.` : '';
+  };
+  for (const { a, b, p, up, down } of upsetChances(state, parts, { model })) {
     if (p < UPSET_MIN || upsetRoom() <= 0) break;
     const ra = rating.get(a), rb = rating.get(b);
     const n = nBetween(a, b);
-    const desc = (id, r) => `${label(combosById.get(id))} is rated ${fmt(r.r)} [${fmt(r.lo)}, ${fmt(r.hi)}]`;
-    addPair('upset', a, b, `${Math.round(p * 100)}% chance this changes your best deck. ${desc(a, ra)}; ${desc(b, rb)}; ${n ? `${n} battle${n === 1 ? '' : 's'} between them so far` : 'they haven\'t met yet'}.`);
+    const desc = (id, r) => `${nameOf(id)} ${fmt(r.r)} [${fmt(r.lo)}, ${fmt(r.hi)}]`;
+    addPair('upset', a, b, `${Math.round(p * 100)}% chance this changes your best deck.${change(a, 'well', up)}${change(a, 'badly', down)} Ratings: ${desc(a, ra)}, ${desc(b, rb)}; ${n ? `${n} battle${n === 1 ? '' : 's'} between them so far` : 'they haven\'t met yet'}.`);
   }
 
   let fixCount = 0;

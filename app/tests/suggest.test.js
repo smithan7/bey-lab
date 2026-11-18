@@ -249,3 +249,38 @@ test('a shared part marked "have multiple" allows the matchup', () => {
   assert.equal(withMulti.length, 1);
   assert.deepEqual([withMulti[0].left.id, withMulti[0].right.id].sort(), [W, W2.id].sort());
 });
+
+import { lookaheadDeck } from '../src/suggest.js';
+
+test('look-ahead reports which deck takes over at each end, matching a direct check', () => {
+  const st = lookState();
+  const model = fitModel(st.battles);
+  const list = upsetChances(st, parts, { model });
+  const byIdC = new Map(st.combos.map((c) => [c.id, c]));
+  const decks = enumerateLegalDecks(cands(st, parts), byIdC);
+  const score = (r, d) => d.reduce((s, id) => s + r[model.idx.get(id)], 0);
+  const bestOf = (r) => decks.reduce((x, d) => (score(r, d) > score(r, x) ? d : x));
+  const now = lookaheadDeck(st, parts, model);
+  assert.deepEqual([...now].sort(), [...bestOf(model.r)].sort());
+  let checked = 0;
+  for (const u of list.slice(0, 5)) {
+    const i = model.idx.get(u.a), j = model.idx.get(u.b);
+    const mu = model.r[i] - model.r[j];
+    const q = model.Ainv[i][i] - 2 * model.Ainv[i][j] + model.Ainv[j][j];
+    const sd = Math.sqrt(model.sigma2 * (1 / 10 + q));
+    for (const [side, z] of [['up', u.zhi + 0.01], ['down', u.zlo - 0.01]]) {
+      if (!Number.isFinite(z)) { assert.equal(u[side], null); continue; }
+      const after = bestOf(ratingShift(model, u.a, u.b, 10, mu + sd * z));
+      assert.deepEqual([...after].sort(), [...u[side]].sort(), `${side} for ${u.a}/${u.b}`);
+      checked++;
+    }
+  }
+  assert.ok(checked > 0);
+});
+
+test('upset reasons say what would change', () => {
+  const st = lookState();
+  const out = suggestTests(st, parts, withRatings(st, [{ deck: [W, C, G] }]));
+  const u = out.find((x) => x.kind === 'upset');
+  assert.match(u.reason, /If .+ does (well|badly), .+ (could|would) (replace|come in for) /);
+});
