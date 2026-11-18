@@ -121,7 +121,7 @@ button:disabled { opacity: .5; }
 .seg { display: flex; gap: 8px; margin-bottom: 12px; }
 .seg button { flex: 1; padding: 0 8px; }
 .seg button[aria-selected="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 700; }
-.lib-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.lib-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 18px; }
 .tile { position: relative; border: 2px solid var(--border); border-radius: 12px; padding: 8px; text-align: center; background: var(--surface); cursor: pointer; min-height: 56px; }
 .tile.owned { border-color: #2e9d5b; }
@@ -200,3 +200,32 @@ button:disabled { opacity: .5; }
 .kid { font-size: 17px; }
 .numbers { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 14px; }
 .numbers h4 { margin: 4px 0; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+/* WBO tier badges (beywatch.gg tiers) */
+.tier { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 22px; padding: 0 6px; border-radius: 6px; font-weight: 800; font-size: 13px; color: #fff; background: #6b7280; }
+.tile .tier { position: absolute; top: 16px; right: 52px; }
+.tier-X { background: #d6336c; } .tier-S { background: #f08c00; } .tier-A { background: #2f9e44; } .tier-B { background: #1c7ed6; } .tier-C { background: #6741d9; } .tier-q { background: #6b7280; }
+.tier.big { min-width: 48px; height: 48px; font-size: 26px; border-radius: 10px; }
+.wbo-head { display: flex; gap: 12px; align-items: center; }
+.wbo-head p { margin: 2px 0; }
+/* Packaging-style stat bars */
+.statbars { margin: 8px 0; }
+.statrow { display: grid; grid-template-columns: 92px 1fr 36px; gap: 10px; align-items: center; margin: 6px 0; }
+.statname { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+.statval { font-weight: 800; text-align: right; }
+.segbar { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; height: 14px; }
+.segbar span { background: var(--bg); border: 1px solid var(--border); border-radius: 2px; transform: skewX(-12deg); }
+.stat-attack .segbar .on { background: #e03131; border-color: #e03131; }
+.stat-defense .segbar .on { background: #1c7ed6; border-color: #1c7ed6; }
+.stat-stamina .segbar .on { background: #2f9e44; border-color: #2f9e44; }
+.stat-dash .segbar .on { background: #f08c00; border-color: #f08c00; }
+.stat-burst .segbar .on { background: #9c36b5; border-color: #9c36b5; }
+
+/* Parts to look for */
+.want h3 { margin: 16px 0 8px; }
+.want-card { display: flex; gap: 12px; align-items: flex-start; padding: 12px; margin-bottom: 10px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); }
+.want-img { width: 72px; height: 72px; object-fit: contain; flex: none; border-radius: 8px; }
+.want-img.none { display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--muted); background: var(--bg); }
+.want-body { flex: 1; min-width: 0; }
+.want-head { display: flex; gap: 8px; align-items: center; }
+.want-body .kid { margin: 6px 0; }
+.want-acts { display: flex; gap: 8px; margin-top: 8px; }

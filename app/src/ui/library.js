@@ -2,7 +2,9 @@
 // DOM is built with textContent only (names can be user-entered).
 import { PART_KINDS, PART_TYPES, searchParts, slug, sortParts, typeLabel } from '../catalog.js';
 import { resizeImage } from '../photos.js';
-import { h, openSheet, searchBox, listButton } from './pickers.js';
+import { h, openSheet, searchBox, listButton, comboThumbs } from './pickers.js';
+import { partsToFind } from '../ideas.js';
+import { fitRatings } from '../ratings.js';
 import { toast } from './log.js';
 
 const GROUPS = [
@@ -24,6 +26,8 @@ let groupId = 'blade';
 let query = '';
 let ownedOnly = false;
 let typeFilter = 'all';
+let byTier = false;
+let lookFor = false;
 
 let tileUrls = [];
 const revoke = (urls) => { for (const u of urls.splice(0)) URL.revokeObjectURL(u); };
@@ -105,6 +109,7 @@ export const tab = {
       if (!query.trim()) hits = sortParts(hits, group.kinds);
       if (ownedOnly) hits = hits.filter((p) => p.owned);
       if (typeFilter !== 'all') hits = hits.filter((p) => p.type === typeFilter);
+      if (byTier) hits = [...hits].sort((a, b) => tierRank(b) - tierRank(a) || (b.meta?.cuts ?? 0) - (a.meta?.cuts ?? 0));
       const owned = base.filter((p) => p.owned).length;
       count.textContent = `${hits.length} shown · ${owned} of ${base.length} owned`;
       for (const p of hits) grid.append(tile(p));
@@ -133,6 +138,7 @@ export const tab = {
       if (tag) t.append(tag);
       t.append(s);
       if (p.owned) t.append(text('span', 'badge', p.multiple ? '✓ Owned · multiple' : '✓ Owned'));
+      if (p.meta) t.append(text('span', `tier tier-${p.meta.tier === '?' ? 'q' : p.meta.tier}`, p.meta.tier));
       const info = h('button', { type: 'button', class: 'info', 'aria-label': `Details for ${p.displayName}` });
       info.textContent = 'ⓘ';
       info.addEventListener('click', (e) => { e.stopPropagation(); openDetail(ctx, p.id); });
@@ -153,7 +159,17 @@ export const tab = {
       h('span', { class: 'knob' }), 'Owned only');
     ownedSw.addEventListener('click', () => { ownedOnly = !ownedOnly; ctx.refresh(); });
     const addBtn = btn('Add part', () => openAddPart(ctx), 'primary');
-    const bar = h('div', { class: 'lib-bar' }, ownedSw, addBtn);
+    const tierSw = h('button', { type: 'button', class: `switch${byTier ? ' on' : ''}`, role: 'switch', 'aria-checked': String(byTier) },
+      h('span', { class: 'knob' }), 'Sort by WBO tier');
+    tierSw.addEventListener('click', () => { byTier = !byTier; ctx.refresh(); });
+    const lookSw = h('button', { type: 'button', class: `switch${lookFor ? ' on' : ''}`, role: 'switch', 'aria-checked': String(lookFor) },
+      h('span', { class: 'knob' }), 'Parts to look for');
+    lookSw.addEventListener('click', () => { lookFor = !lookFor; ctx.refresh(); });
+    if (lookFor) {
+      el.append(h('div', { class: 'lib-bar' }, lookSw), wantList(ctx, state, el));
+      return;
+    }
+    const bar = h('div', { class: 'lib-bar' }, ownedSw, tierSw, lookSw, addBtn);
 
     const typed = group.kinds.some((k) => !UNTYPED.has(k));
     if (!typed) typeFilter = 'all';
@@ -171,6 +187,81 @@ export const tab = {
     fill();
   },
 };
+
+// ---------- parts to look for ----------
+
+// Unowned parts that would most improve your combos (see partsToFind), with what each would make.
+function wantList(ctx, state, el) {
+  const box = h('div', { class: 'want' });
+  const list = partsToFind(state, ctx.parts, { reference: ctx.reference, ratings: fitRatings(state.battles) });
+  box.append(text('p', 'muted', 'Parts you don\'t have yet that would make your best combos better, going by WBO results and packaging stats. Worth looking for at the next event or store trip.'));
+  if (!list.length) {
+    box.append(text('p', 'muted', state.combos.length ? 'Nothing stands out: your parts already cover the best options we know of.' : 'Add some combos first, then this shows parts that would make them better.'));
+    return box;
+  }
+  const section = (title, items) => {
+    if (!items.length) return;
+    box.append(text('h3', '', title));
+    for (const x of items) {
+      const p = x.part;
+      const img = p.imageUrl ? refImg(p, 'want-img') : text('div', 'want-img none', 'no photo');
+      const head = h('div', { class: 'want-head' }, text('strong', '', p.displayName));
+      if (p.meta) head.append(text('span', `tier tier-${p.meta.tier === '?' ? 'q' : p.meta.tier}`, p.meta.tier));
+      const info = btn('Details', () => openDetail(ctx, p.id));
+      const got = btn('I got it', async () => {
+        await ctx.store.setOverride(p.id, { owned: true });
+        toast(`${p.displayName}: owned`);
+        await keepScroll(ctx, el);
+      }, 'primary');
+      box.append(h('div', { class: 'want-card' }, img, h('div', { class: 'want-body' },
+        head, text('p', 'kid', x.reason), comboThumbs(x.combo, ctx.partsById), h('div', { class: 'want-acts' }, info, got))));
+    }
+  };
+  section('Ratchets and bits', list.filter((x) => x.part.kind !== 'blade'));
+  section('Blades', list.filter((x) => x.part.kind === 'blade'));
+  return box;
+}
+
+// ---------- reference: packaging stats and WBO results ----------
+
+const TIER_ORDER = { X: 5, S: 4, A: 3, B: 2, C: 1, '?': 0.5 };
+const tierRank = (p) => (p.meta ? TIER_ORDER[p.meta.tier] ?? 0 : -1);
+// Top of each kind's packaging scale (just above the highest value printed for that kind).
+const STAT_SCALE = { blade: 100, main_blade: 50, over_blade: 10, metal_blade: 25, assist_blade: 40, ratchet: 20, bit: 80, lock_chip: 50 };
+const STAT_ROWS = [['attack', 'Attack'], ['defense', 'Defense'], ['stamina', 'Stamina'], ['dash', 'X Dash'], ['burst', 'Burst Res.']];
+const SEGMENTS = 10;
+
+// Segmented bars like the ones on the box, with the number at the end.
+function statBars(part) {
+  const box = h('section', { class: 'statbars', 'aria-label': 'Packaging stats' });
+  box.append(text('h3', '', 'Packaging stats'));
+  const scale = STAT_SCALE[part.kind] ?? 100;
+  for (const [key, name] of STAT_ROWS) {
+    const v = part.stats[key];
+    if (v == null) continue;
+    const filled = Math.max(v > 0 ? 1 : 0, Math.min(SEGMENTS, Math.round((v / scale) * SEGMENTS)));
+    const bar = h('div', { class: 'segbar', role: 'img', 'aria-label': `${name} ${v}` });
+    for (let i = 0; i < SEGMENTS; i++) bar.append(h('span', { class: i < filled ? 'on' : '' }));
+    box.append(h('div', { class: `statrow stat-${key}` }, text('span', 'statname', name), bar, text('span', 'statval', String(v))));
+  }
+  if (part.stats.height != null && part.kind === 'ratchet') box.append(text('p', 'muted', `Height ${part.stats.height}`));
+  return box;
+}
+
+function wboBox(part, reference) {
+  const m = part.meta;
+  const box = h('section', { class: 'wbo' });
+  box.append(text('h3', '', 'At WBO events'));
+  const kindName = { blade: 'blades', main_blade: 'blades', ratchet: 'ratchets', bit: 'bits', lock_chip: 'lock chips', over_blade: 'over blades', assist_blade: 'assist blades' }[part.kind] ?? 'parts';
+  box.append(h('div', { class: 'wbo-head' },
+    text('span', `tier big tier-${m.tier === '?' ? 'q' : m.tier}`, m.tier),
+    h('div', {},
+      text('p', '', `#${m.rank} of ${m.of} ${kindName}`),
+      text('p', 'muted', m.tier === '?' ? 'Fewer than 60 top-3 finishes, so no tier yet.' : `${Math.round(m.firstRate * 100)}% of its ${m.cuts.toLocaleString('en-US')} top-3 finishes were 1st place.`))));
+  if (m.bestCombo) box.append(text('p', '', `Most successful combo: ${m.bestCombo}`));
+  box.append(text('p', 'muted', `From beywatch.gg (all-time, worldwide${reference?.asOf ? `, as of ${reference.asOf}` : ''}). Stats from the Beyblade wiki.`));
+  return box;
+}
 
 // ---------- detail sheet ----------
 
@@ -208,6 +299,8 @@ function openDetail(ctx, partId) {
     if (part.name !== part.displayName) body.append(text('p', 'muted', `Catalog name: ${part.name}`));
     const alts = (part.altNames ?? []).join(', ');
     if (alts) body.append(text('p', 'muted', `Also known as: ${alts}`));
+    if (part.stats) body.append(statBars(part));
+    if (part.meta) body.append(wboBox(part, ctx.reference));
 
     // How many you own: only matters for testing, since two combos sharing a part can battle
     // each other only if you have more than one of it. Decks still can't repeat a part.

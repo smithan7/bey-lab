@@ -1,5 +1,5 @@
 import { IdbBackend, MemoryBackend, createStore } from '../store.js';
-import { normalizeCatalog, mergeParts } from '../catalog.js';
+import { normalizeCatalog, mergeParts, withReference } from '../catalog.js';
 import { buildSeed } from '../seed.js';
 import { openSettings } from './settings.js';
 import { tab as log } from './log.js';
@@ -48,7 +48,10 @@ function showDialog({ title, body, actions }) {
 async function boot() {
   const res = await fetch('data/parts-catalog.json');
   if (!res.ok) throw new Error(`Could not load the parts catalog (HTTP ${res.status}).`);
-  const catalogParts = normalizeCatalog(await res.json());
+  // Packaging stats and WBO results: optional, the app works without them.
+  let reference = null;
+  try { const r = await fetch('data/reference.json'); if (r.ok) reference = await r.json(); } catch { /* offline first run */ }
+  const catalogParts = withReference(normalizeCatalog(await res.json()), reference);
 
   let store;
   try {
@@ -61,7 +64,7 @@ async function boot() {
   if (!store.state().meta.seeded) await store.applySeed(buildSeed(catalogParts));
   try { await navigator.storage?.persist?.(); } catch { /* best effort */ }
 
-  const ctx = { store, catalogParts, parts: [], partsById: new Map(), combosById: new Map(), showDialog };
+  const ctx = { store, catalogParts, reference, parts: [], partsById: new Map(), combosById: new Map(), showDialog };
   let current = TABS[0].id;
   let params;
 

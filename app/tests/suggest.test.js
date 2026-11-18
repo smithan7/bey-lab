@@ -55,7 +55,7 @@ const bat = (left, right, pts, finish) => ({
 const many = (l, r, list) => list.map((p) => bat(l, r, p));
 const mkState = (battles, combos = seed.combos) => ({ ...seed, combos, battles });
 const none = { ranked: [] };
-const ORDER = ['screen', 'unlock', 'upset', 'fix'];
+const ORDER = ['screen', 'unlock', 'idea', 'upset', 'fix'];
 const kindOk = (list) => list.every((s, i) => i === 0 || ORDER.indexOf(list[i - 1].kind) <= ORDER.indexOf(s.kind));
 const idsOf = (s) => [s.left.id, s.right.id].sort().join('|');
 const pair = (a, b) => [a, b].sort().join('|');
@@ -353,4 +353,30 @@ test('no unlock when the variant has already been tested, or only a blade is sha
   const st3 = mkState([...many(W, C, [3, 3, 3, 3]), ...many(W2.id, C, [3, 3, 3, 3]), ...many(W, W2.id, [1, -1])], [...seed.combos, W2]);
   const out3 = suggestTests(st3, parts, withRatings(st3, []));
   assert.ok(!out3.some((s) => s.kind === 'unlock' && [W, W2.id].includes(s.replaces) && s.reason.includes('Wizard Rod') && /both need Wizard Rod/.test(s.reason)));
+});
+
+// ---- ideas from WBO results and packaging stats ----
+import { MAX_IDEA } from '../src/suggest.js';
+import { withReference } from '../src/catalog.js';
+
+test('idea: untried combos from owned parts come after unlocks, at most 2, never existing combos', () => {
+  const reference = JSON.parse(readFileSync(new URL('../data/reference.json', import.meta.url), 'utf8'));
+  const refParts = withReference(parts, reference);
+  const st = unlockState();
+  const out = suggestTests(st, refParts, withRatings(st, []), { reference });
+  const ideas = out.filter((s) => s.kind === 'idea');
+  assert.equal(MAX_IDEA, 2);
+  assert.ok(ideas.length >= 1 && ideas.length <= 2, out.map((s) => s.kind).join());
+  const existing = new Set(st.combos.map((c) => c.id));
+  const owned = new Set(refParts.filter((p) => p.owned).map((p) => p.id));
+  for (const s of ideas) {
+    assert.ok(!existing.has(s.left.id));
+    assert.ok(comboParts(s.left).every((p) => owned.has(p)));
+    assert.ok(!comboParts(s.left).some((p) => comboParts(s.right).includes(p)));
+    assert.match(s.reason, /^Idea: /);
+  }
+  const order = ['screen', 'unlock', 'idea', 'upset', 'fix'];
+  for (let i = 1; i < out.length; i++) assert.ok(order.indexOf(out[i - 1].kind) <= order.indexOf(out[i].kind));
+  // Without reference data there are no ideas.
+  assert.ok(!suggestTests(st, parts, withRatings(st, [])).some((s) => s.kind === 'idea'));
 });
