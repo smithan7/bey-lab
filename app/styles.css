@@ -195,3 +195,8 @@ button:disabled { opacity: .5; }
   .deck:not(.deck-hero) .member .thumbs { width: 112px; }
   .member .thumb, .deck:not(.deck-hero) .member .thumb { width: 24px; height: 24px; }
 }
+.combo-card .thumbs { margin-top: 6px; flex-wrap: wrap; }
+.kid-head { font-size: 20px; font-weight: 700; line-height: 1.35; }
+.kid { font-size: 17px; }
+.numbers { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 14px; }
+.numbers h4 { margin: 4px 0; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }

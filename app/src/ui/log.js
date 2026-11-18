@@ -3,7 +3,7 @@ import { FINISH_POINTS } from '../scoring.js';
 import { matchupStats } from '../stats.js';
 import { pairingScores } from '../matchups.js';
 import { comboLabel } from '../combo.js';
-import { h, openComboPicker } from './pickers.js';
+import { h, comboThumbs, openComboPicker } from './pickers.js';
 
 export function logReadout(state, left, right, opts = {}) {
   const scores = pairingScores(state.battles, left, right);
@@ -21,6 +21,27 @@ export function logReadout(state, left, right, opts = {}) {
     evCI: st ? st.evCI : null,
     pEvNeg: st ? st.pEvNeg : null,
   };
+}
+
+/**
+ * The pairing in plain words for a young tester: who should win, by how much, and how sure we
+ * are, then that combo's win count. r is a logReadout result; ev and pEvNeg are from the left side.
+ */
+export function kidSummary(r, lName, rName) {
+  if (!r.n) return [`${lName} and ${rName} haven't battled yet. Tap who wins below to start!`];
+  if (r.ev == null) return ['Only 1 battle so far. Battle some more to find out who\'s better!'];
+  const leftAhead = r.ev >= 0;
+  const [lead, other] = leftAhead ? [lName, rName] : [rName, lName];
+  const sure = leftAhead ? 1 - r.pEvNeg : r.pEvNeg; // chance the leader really is better
+  const gap = Math.abs(r.ev);
+  const by = gap < 0.05 ? 'less than 0.1 points' : `about ${gap.toFixed(1)} points`;
+  const head = sure < 0.65
+    ? `It's a close one! ${lead} is just a tiny bit ahead so far. Keep battling to find out who's better.`
+    : `${lead} ${sure >= 0.9 ? 'should' : 'will probably'} beat ${other}, by ${by} a battle.`;
+  const won = leftAhead ? r.wins : r.losses;
+  const draws = r.draws ? ` (and ${r.draws} ${r.draws === 1 ? 'was a draw' : 'were draws'})` : '';
+  const set = r.batchCount ? `This set: ${r.batchCount} of 10 battles done.` : 'That finishes a set of 10! Do another set, or try a new matchup.';
+  return [head, `${lead} has won ${won} of ${r.n} battles${draws}.`, set];
 }
 
 const FINISHES = [['spin', 'Spin'], ['burst', 'Burst'], ['pocket', 'Pocket'], ['xtreme', 'Xtreme']];
@@ -101,6 +122,8 @@ export const tab = {
     const card = (side, name) => {
       const b = h('button', { type: 'button', class: `combo-card ${side}` });
       b.append(h('span', { class: 'muted' }, side === 'left' ? 'LEFT' : 'RIGHT'), h('strong', {}, name ?? 'Tap to pick a combo'));
+      const combo = last[side] && combosById.get(last[side]);
+      if (combo) b.append(comboThumbs(combo, ctx.partsById));
       b.addEventListener('click', () => pick(side));
       return b;
     };
@@ -189,15 +212,20 @@ export const tab = {
     const readout = h('section', { class: 'readout' }, h('h3', {}, 'This pairing'));
     if (last.left && last.right && last.left !== last.right) {
       const r = logReadout(state, last.left, last.right);
-      readout.append(h('p', {}, `Record (W-D-L for left): ${r.record}   Batch: ${r.batchCount}/10`));
-      if (r.ev == null) readout.append(h('p', { class: 'muted' }, r.n ? 'Only 1 battle: EV unknown.' : 'No battles yet: unknown.'));
+      // Plain words first (for young testers), then the numbers.
+      const [head, ...rest] = kidSummary(r, lName, rName);
+      readout.append(h('p', { class: 'kid-head' }, head), ...rest.map((t) => h('p', { class: 'kid' }, t)));
+      const nums = h('div', { class: 'numbers' }, h('h4', {}, 'The numbers'));
+      nums.append(h('p', {}, `Record (W-D-L for left): ${r.record}   Batch: ${r.batchCount}/10`));
+      if (r.ev == null) nums.append(h('p', { class: 'muted' }, r.n ? 'Only 1 battle: EV unknown.' : 'No battles yet: unknown.'));
       else {
-        readout.append(
+        nums.append(
           h('p', {}, `EV ${r.ev >= 0 ? '+' : ''}${r.ev.toFixed(2)} (95%: ${r.evCI[0].toFixed(2)} to ${r.evCI[1].toFixed(2)}) over ${r.n} battles`),
           intervalBar(r),
           h('p', {}, `P(EV < 0): ${Math.round(r.pEvNeg * 100)}%`),
         );
       }
+      readout.append(nums);
     } else readout.append(h('p', { class: 'muted' }, 'Pick two different combos to see the record.'));
 
     el.append(h('div', { class: 'cards' }, card('left', lName), swap, card('right', rName)), errBox, grid, bar, readout);
