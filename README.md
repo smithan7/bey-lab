@@ -20,6 +20,16 @@ Address (once published): https://smithan7.github.io/bey-lab/
   changing your best deck after 10 more battles, then part-swap fixes. It never pairs two combos
   that share a part, unless you've marked that part **Have multiple** (Parts tab → ⓘ).
 
+## Part reference and ideas
+
+- **Parts** shows each part's packaging stats as bars (from the Beyblade wiki) and how it does at
+  WBO events: tier, 1st-place rate and top-3 finishes (from beywatch.gg, all-time, worldwide).
+  Tiles show the tier; **Sort by WBO tier** puts the best first.
+- **Next** adds **Idea** cards: untried combos from parts you own that WBO results and packaging
+  stats favour. On **Combos → Edit → Suggest 3 variants** you get three versions of any combo.
+- The reference is a snapshot in `app/data/reference.json`. Refresh it with
+  `node scripts/update-reference.mjs` (or ask Claude to "refresh the meta").
+
 ## Install on the iPad
 
 1. Open the address above in **Safari** (it has to be Safari).

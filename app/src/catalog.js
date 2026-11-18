@@ -129,3 +129,8 @@ export function sortParts(parts, kinds = PART_KINDS) {
   return [...parts].sort((a, b) => kinds.indexOf(a.kind) - kinds.indexOf(b.kind)
     || nameCollator.compare(a.displayName ?? a.name, b.displayName ?? b.name));
 }
+
+// Attaches packaging stats and WBO tournament results (app/data/reference.json) to catalog parts.
+export function withReference(parts, ref) {
+  return parts.map((p) => ({ ...p, stats: ref?.stats?.[p.id] ?? null, meta: ref?.meta?.[p.id] ?? null }));
+}

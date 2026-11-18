@@ -2,6 +2,7 @@
 // DOM is built with textContent only (part names can be user-entered).
 import { blockingParts, comboLabel, comboParts, partRefName } from '../combo.js';
 import { ratingsLeaderboard } from '../ratings.js';
+import { variantsFor } from '../ideas.js';
 import { matchupStats } from '../stats.js';
 import { pairingScores, finishBreakdown, comboFlags } from '../matchups.js';
 import { makeRng } from '../rng.js';
@@ -181,7 +182,8 @@ function openEditCombo(ctx, c) {
   const battles = n === 1 ? '1 battle' : `${n} battles`;
   sheet.body.append(
     choice('Fix parts', n ? `It was logged with a wrong part. Its ${battles} move to the corrected combo.` : 'Change its parts.', 'fix'),
-    choice('Make a variant', 'Start a new combo from this one (e.g. a different ratchet). This one and its battles stay as they are.', 'variant'));
+    choice('Make a variant', 'Start a new combo from this one (e.g. a different ratchet). This one and its battles stay as they are.', 'variant'),
+    choice('Suggest 3 variants', 'Three versions with other ratchets or bits you own, picked from WBO results and packaging stats.', 'suggest'));
   if (!n) sheet.body.append(choice('Delete combo', 'Remove it. It has no battles, so no test data is lost.', 'delete', 'danger'));
   else sheet.body.append(h('p', { class: 'muted' }, `Combos with battles can’t be deleted, so test data is never lost. Low-rated combos simply stop being suggested for testing.`));
 
@@ -211,6 +213,8 @@ function openEditCombo(ctx, c) {
       justBuilt = id;
       await ctx.refresh();
       document.getElementById('view')?.scrollTo?.(0, 0);
+    } else if (what === 'suggest') {
+      await openVariantIdeas(ctx, c);
     } else if (what === 'delete') {
       try { await ctx.store.deleteCombo(c.id); } catch (e) { toast(e.message); return; }
       if (justBuilt === c.id) justBuilt = null;
@@ -218,6 +222,40 @@ function openEditCombo(ctx, c) {
       await ctx.refresh();
     }
   });
+}
+
+// Three suggested variants of a combo; "Try it" saves one and opens the Log against the strongest
+// combo it can be built alongside.
+function openVariantIdeas(ctx, c) {
+  const state = ctx.store.state();
+  const sheet = openSheet(`Variants of ${comboLabel(c, ctx.partsById)}`);
+  const close = h('button', { type: 'button' }, 'Close');
+  close.addEventListener('click', () => sheet.done(null));
+  sheet.head.append(close, sheet.heading);
+  const list = variantsFor(c, state, ctx.parts, { reference: ctx.reference });
+  if (!list.length) sheet.body.append(h('p', { class: 'muted' }, 'No new variants: every ratchet and bit you own has been tried with this blade, or none fit.'));
+  const ranked = ratingsLeaderboard(state).map((r) => r.comboId);
+  for (const v of list) {
+    const card = h('article', { class: 'report' });
+    card.append(h('header', {}, comboThumbs(v.combo, ctx.partsById), h('h3', {}, comboLabel(v.combo, ctx.partsById))), h('p', {}, v.reason));
+    const go = h('button', { type: 'button', class: 'primary' }, 'Try it');
+    go.addEventListener('click', async () => {
+      if (go.disabled) return;
+      go.disabled = true;
+      try {
+        if (!ctx.store.state().combos.some((x) => x.id === v.combo.id)) await ctx.store.upsertCombo(v.combo);
+        const opp = ranked.find((id) => id !== v.combo.id && !blockingParts(v.combo, ctx.store.state().combos.find((x) => x.id === id), ctx.partsById).length);
+        sheet.done(null);
+        await ctx.refresh();
+        if (opp) ctx.goTo('log', { left: v.combo.id, right: opp });
+        else toast(`Saved ${comboLabel(v.combo, ctx.partsById)}. It's on the Next tab.`);
+      } catch (e) { go.disabled = false; toast(`Not saved: ${e.message}`); }
+    });
+    card.append(h('div', { class: 'toggles' }, go));
+    sheet.body.append(card);
+  }
+  if (ctx.reference?.asOf) sheet.body.append(h('p', { class: 'muted' }, `WBO results from beywatch.gg; packaging stats from the Beyblade wiki (as of ${ctx.reference.asOf}).`));
+  return sheet.promise;
 }
 
 function newComboBar(ctx) {

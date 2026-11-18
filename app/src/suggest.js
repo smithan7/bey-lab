@@ -3,11 +3,13 @@ import { blockingParts, comboId, comboParts, comboLabel, partRefName, validateCo
 import { comboFlags, finishBreakdown, pairingScores } from './matchups.js';
 import { fitModel, ratingsLeaderboard } from './ratings.js';
 import { candidateCombos, enumerateLegalDecks, opponentCombos } from './lineup.js';
+import { comboIdeas } from './ideas.js';
 
 export const MAX_SUGGESTIONS = 8;
 export const MAX_SCREEN = 3;
 export const MAX_FIX = 2;
 export const MAX_UNLOCK = 2;
+export const MAX_IDEA = 2;
 // How many of the highest-rated owned combos are checked for clashes that keep them apart.
 export const UNLOCK_TOP = 5;
 // Battles per suggested test, and the look-ahead's batch size.
@@ -99,11 +101,13 @@ export function upsetChances(state, parts, { model = fitModel(state.battles), n 
 
 /**
  * Returns at most MAX_SUGGESTIONS of {kind, left, right, battles: 10, reason, replaces}, in kind
- * order: screen (untested owned combos, newest first, at most MAX_SCREEN), upset (runnable
+ * order: screen (untested owned combos, newest first, at most MAX_SCREEN), unlock (a part swap so
+ * two top combos can share a deck), idea (untried combos favoured by WBO results and packaging
+ * stats; needs options.reference), upset (runnable
  * matchups by chance of changing the best deck, at least UPSET_MIN), fix (burst/KO part swaps
  * for #1 deck members, at most MAX_FIX). Never pairs combos that share a part.
  */
-export function suggestTests(state, parts, lineupResult) {
+export function suggestTests(state, parts, lineupResult, { reference } = {}) {
   const battles = state.battles ?? [];
   const combosById = new Map((state.combos ?? []).map((c) => [c.id, c]));
   const partsById = new Map(parts.map((p) => [p.id, p]));
@@ -193,6 +197,17 @@ export function suggestTests(state, parts, lineupResult) {
       if (!opp) continue;
       const reason = `${label(hi)} and ${label(lo)} both need ${partRefName(partsById, u.part)}, so they can't be in the same deck. Try ${label(u.variant)}: if it holds up, you can run both.`;
       if (add('unlock', u.variant, combosById.get(opp), reason, u.move.id)) unlocks++;
+    }
+  }
+
+  // 1c. Idea: untried combos from owned parts that WBO results and packaging stats favour
+  // (needs the reference data). Each against the strongest combo it can be built alongside.
+  if (reference) {
+    let ideas = 0;
+    for (const { combo, reason } of comboIdeas(state, parts, { limit: 6, reference })) {
+      if (ideas >= MAX_IDEA) break;
+      const opp = opponents.find((o) => !blockingParts(combo, combosById.get(o), partsById).length);
+      if (opp && add('idea', combo, combosById.get(opp), `Idea: ${reason}`)) ideas++;
     }
   }
 

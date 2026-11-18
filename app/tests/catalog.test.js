@@ -98,3 +98,18 @@ test('mergeParts carries the multiple flag', () => {
   const [q] = mergeParts([{ id: 'bit:x', kind: 'bit', name: 'X' }], [], {});
   assert.equal(q.multiple, false);
 });
+
+import { withReference } from '../src/catalog.js';
+
+test('withReference attaches stats and WBO results; missing data stays null', () => {
+  const ps = [{ id: 'bit:low-rush', kind: 'bit', name: 'Low Rush' }, { id: 'bit:x', kind: 'bit', name: 'X' }];
+  const ref = { stats: { 'bit:low-rush': { attack: 45, dash: 35 } }, meta: { 'bit:low-rush': { tier: 'S', cuts: 5191 } } };
+  const [a, b] = withReference(ps, ref);
+  assert.deepEqual(a.stats, { attack: 45, dash: 35 });
+  assert.equal(a.meta.tier, 'S');
+  assert.equal(b.stats, null);
+  assert.equal(b.meta, null);
+  assert.deepEqual(withReference(ps, null).map((p) => p.stats), [null, null]);
+  // mergeParts keeps them.
+  assert.equal(mergeParts(withReference(ps, ref), [], {})[0].meta.tier, 'S');
+});
