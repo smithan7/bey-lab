@@ -1,5 +1,5 @@
 // Next-test suggestions. Pure: reads the lineup result and the data, runs no simulation.
-import { comboId, comboParts, comboLabel, partRefName, validateCombo } from './combo.js';
+import { comboId, comboParts, comboLabel, validateCombo } from './combo.js';
 import { comboFlags, finishBreakdown, pairingScores } from './matchups.js';
 import { matchupStats } from './stats.js';
 import { ratingsLeaderboard } from './ratings.js';
@@ -26,7 +26,6 @@ export function suggestTests(state, parts, lineupResult) {
   const battles = state.battles ?? [];
   const combosById = new Map((state.combos ?? []).map((c) => [c.id, c]));
   const partsById = new Map(parts.map((p) => [p.id, p]));
-  const name = (id) => partRefName(partsById, id);
   const label = (c) => comboLabel(c, partsById);
   const ranked = lineupResult?.ranked ?? [];
   const rows = lineupResult?.ratings ?? ratingsLeaderboard(state);
@@ -43,13 +42,13 @@ export function suggestTests(state, parts, lineupResult) {
   const seen = new Set();
   const key = (a, b) => (a < b ? `${a}\n${b}` : `${b}\n${a}`);
 
+  // Never suggests two combos that share a part: they can't both be built at once.
   function add(kind, left, right, reason, replaces = null) {
     if (!left || !right || left.id === right.id || seen.has(key(left.id, right.id))) return false;
-    seen.add(key(left.id, right.id));
     const rp = new Set(comboParts(right));
-    const shared = [...new Set(comboParts(left))].filter((p) => rp.has(p));
-    const note = shared.length ? ` (needs two of ${shared.map(name).join(', ')})` : '';
-    out.push({ kind, left, right, battles: BATTLES, reason: reason + note, replaces });
+    if (comboParts(left).some((p) => rp.has(p))) return false;
+    seen.add(key(left.id, right.id));
+    out.push({ kind, left, right, battles: BATTLES, reason, replaces });
     return true;
   }
   const addPair = (kind, a, b, reason) => add(kind, combosById.get(a), combosById.get(b), reason);
@@ -69,7 +68,7 @@ export function suggestTests(state, parts, lineupResult) {
     if (screens >= MAX_SCREEN) break;
     // With nothing tested yet, pair new combos with each other.
     const pool = opponents.length ? opponents : fresh.map((x) => x.id);
-    const opp = pool.find((o) => o !== c.id && !sharesParts(c.id, o)) ?? pool.find((o) => o !== c.id);
+    const opp = pool.find((o) => o !== c.id && !sharesParts(c.id, o));
     if (opp && addPair('screen', c.id, opp, `${label(c)} hasn't been tested yet — start with the strongest combo it can face.`)) screens++;
   }
 
@@ -81,13 +80,12 @@ export function suggestTests(state, parts, lineupResult) {
   for (const c of contenders) {
     const row = rating.get(c);
     // Prefer opponents it can be battled against without two copies of a part.
-    const unfacedAll = opponents.filter((o) => o !== c && nBetween(c, o) === 0);
-    const unfaced = unfacedAll.find((o) => !sharesParts(c, o)) ?? unfacedAll[0];
+    // Opponents it can be battled against without two copies of a part.
+    const unfaced = opponents.find((o) => o !== c && nBetween(c, o) === 0 && !sharesParts(c, o));
     if (unfaced) {
       addPair('contender', c, unfaced, `${label(combosById.get(c))} could make the best deck (rating ${fmt(row.r)}, up to ${fmt(row.hi)}) but hasn't faced ${label(combosById.get(unfaced))}.`);
     } else {
-      const clash = (o) => (sharesParts(c, o) ? 1 : 0);
-      const least = opponents.filter((o) => o !== c).sort((a, b) => clash(a) - clash(b) || nBetween(c, a) - nBetween(c, b) || rOf(b) - rOf(a))[0];
+      const least = opponents.filter((o) => o !== c && !sharesParts(c, o)).sort((a, b) => nBetween(c, a) - nBetween(c, b) || rOf(b) - rOf(a))[0];
       if (least) addPair('contender', c, least, `${label(combosById.get(c))} could make the best deck (rating ${fmt(row.r)}, up to ${fmt(row.hi)}) — more battles against ${label(combosById.get(least))} will settle it.`);
     }
   }
@@ -97,10 +95,9 @@ export function suggestTests(state, parts, lineupResult) {
   for (const a of top) for (const o of opponents) {
     if (o === a) continue;
     const n = nBetween(a, o);
-    if (n < UNDER_TESTED) checks.push({ a, o, n, clash: sharesParts(a, o) ? 1 : 0 });
+    if (n < UNDER_TESTED && !sharesParts(a, o)) checks.push({ a, o, n });
   }
-  // Pairings that need two copies of a part go last; otherwise strongest opponent first.
-  checks.sort((x, y) => x.clash - y.clash || rOf(y.o) - rOf(x.o));
+  checks.sort((x, y) => rOf(y.o) - rOf(x.o));
   for (const { a, o, n } of checks) {
     addPair('topcheck', a, o, `${label(combosById.get(a))} is in the best deck but has ${n === 0 ? 'no battles' : `only ${n} battle${n === 1 ? '' : 's'}`} against ${label(combosById.get(o))} (rated ${fmt(rOf(o))}).`);
   }
@@ -110,15 +107,19 @@ export function suggestTests(state, parts, lineupResult) {
   const refDeck = top;
   const field = opponents;
 
-  function mostDangerous(comboIdValue) {
+  // The opponent that took the most points off this combo, among those the swapped combo
+  // shares no parts with.
+  function mostDangerous(comboIdValue, swapped) {
+    const mine = new Set(comboParts(swapped));
+    const ok = (f) => f !== comboIdValue && f !== swapped.id && combosById.has(f) && !comboParts(combosById.get(f)).some((p) => mine.has(p));
     let best = null;
     let bestPts = 0;
     for (const f of field) {
-      if (f === comboIdValue) continue;
+      if (!ok(f)) continue;
       const pts = pairingScores(battles, f, comboIdValue).reduce((s, x) => s + Math.max(x, 0), 0);
       if (pts > bestPts) { best = f; bestPts = pts; }
     }
-    return combosById.get(best) ?? combosById.get(field.find((f) => f !== comboIdValue));
+    return combosById.get(best) ?? combosById.get(field.find(ok));
   }
 
   // Candidate replacement combos: another owned bit first (ratchet nulled for integrated bits),
@@ -161,7 +162,7 @@ export function suggestTests(state, parts, lineupResult) {
     const ko = flags.includes('ko-risk');
     if (!burst && !ko) continue;
     const swap = swapOptions(combo)[0];
-    const right = mostDangerous(combo.id);
+    const right = swap && mostDangerous(combo.id, swap.c);
     if (!swap || !right) continue;
     const text = burst
       ? `was burst in ${br.lost.burst} of ${br.n} battles`

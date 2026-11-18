@@ -243,7 +243,8 @@ function justBuiltPanel(ctx, state, rankedIds) {
   const byId = new Map(state.combos.map((x) => [x.id, x]));
   const shares = (id) => comboParts(byId.get(id)).some((p) => mine.has(p));
   const pool = rankedIds.filter((id) => id !== c.id && byId.has(id));
-  const opps = [...pool.filter((id) => !shares(id)), ...pool.filter(shares)].slice(0, 3);
+  // Only opponents it shares no parts with, so both can be built at once.
+  const opps = pool.filter((id) => !shares(id)).slice(0, 3);
   if (opps.length) {
     panel.append(h('p', { class: 'muted' }, 'Test it against the strongest combos — tap one to open the Log with both combos picked:'));
     const row = h('div', { class: 'row-btns' });

@@ -137,13 +137,13 @@ test('topcheck: #1 member thinly tested vs a strong opponent, strongest first', 
 });
 
 test('narrow: wide intervals past the top-deck check are narrow; tight ones are not', () => {
-  const st = mkState([...many(W, C, [1]), ...many(W, P, [3, -3, 3, -3, 3, -3]), ...many(C, P, [1, 1, 1, 1, 1, 1])],
-    seed.combos.filter((c) => [W, C, P].includes(c.id)));
-  const out = suggestTests(st, parts, withRatings(st, [{ deck: [W, C, P] }]));
+  const st = mkState([...many(W, C, [1]), ...many(W, G, [3, -3, 3, -3, 3, -3]), ...many(C, G, [1, 1, 1, 1, 1, 1])],
+    seed.combos.filter((c) => [W, C, G].includes(c.id)));
+  const out = suggestTests(st, parts, withRatings(st, [{ deck: [W, C, G] }]));
   const kindOf = new Map(out.map((s) => [idsOf(s), s.kind]));
   assert.equal(kindOf.get(pair(W, C)), 'topcheck'); // 1 battle: under-tested
-  assert.equal(kindOf.get(pair(W, P)), 'narrow'); // 6 battles, wide interval
-  assert.ok(!kindOf.has(pair(C, P)));
+  assert.equal(kindOf.get(pair(W, G)), 'narrow'); // 6 battles, wide interval
+  assert.ok(!kindOf.has(pair(C, G)));
 });
 
 test('ko-risk fix swaps the bit of Rocket Griffon when it is in the #1 deck', () => {
@@ -189,17 +189,21 @@ test('no battles at all: untested owned combos are screened against each other',
   for (const s of screens) assert.notEqual(s.left.id, s.right.id);
 });
 
-test('contender and topcheck prefer opponents that need no shared parts', () => {
-  // P (Pegasus Blast Free Ball) and O (Pegasus Blast Pop Out) share the blade. O is the strongest
-  // opponent, but P should be pointed at a combo it can physically battle at the same time.
-  const b = [...many(O, H, [3, 3, 3, 3, 3]), ...many(O, G, [3, 3, 3, 3]), ...many(P, H, [1, -1, 1]), ...many(W, C, [1, -1, 1, -1])];
-  const st = mkState(b);
-  const shares = (s) => comboParts(s.left).some((p) => comboParts(s.right).includes(p));
-  const out = suggestTests(st, parts, withRatings(st, [{ deck: [W, C, G] }]));
-  const pc = out.find((s) => s.kind === 'contender' && s.left.id === P);
-  assert.ok(pc, 'P should be a contender');
-  assert.ok(!shares(pc), `contender pairing shares parts: ${label(pc.left)} vs ${label(pc.right)}`);
-  const tc = out.filter((s) => s.kind === 'topcheck');
-  const firstClash = tc.findIndex(shares);
-  if (firstClash >= 0) assert.ok(tc.slice(firstClash).every(shares), 'clashing topchecks come after non-clashing ones');
+test('no suggestion ever pairs combos that share a part', () => {
+  const shares = (x) => comboParts(x.left).some((p) => comboParts(x.right).includes(p));
+  const states = [
+    [mkState([...many(O, H, [3, 3, 3, 3, 3]), ...many(O, G, [3, 3, 3, 3]), ...many(P, H, [1, -1, 1]), ...many(W, C, [1, -1, 1, -1])]), [{ deck: [W, C, G] }]],
+    [mkState([]), []],
+    [mkState(many(H, O, [1, -1, 2])), []],
+    [mkState([...many(G, W, [-3, -3, -3, -3, 1, 1, 1, 1, 1, 1])]), [{ deck: [G, C, H] }]],
+  ];
+  let total = 0;
+  for (const [st, ranked] of states) {
+    const out = suggestTests(st, parts, withRatings(st, ranked));
+    total += out.length;
+    for (const x of out) assert.ok(!shares(x), `${x.kind}: ${label(x.left)} vs ${label(x.right)}`);
+    for (const x of out) assert.ok(!/needs two of/.test(x.reason));
+  }
+  assert.ok(total > 10);
+  for (const x of sugg) assert.ok(!shares(x), `seed ${x.kind}: ${label(x.left)} vs ${label(x.right)}`);
 });
