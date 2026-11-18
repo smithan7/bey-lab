@@ -1,5 +1,5 @@
 // Next-test suggestions. Pure: reads the lineup result and the data, runs no match simulation.
-import { comboId, comboParts, comboLabel, validateCombo } from './combo.js';
+import { blockingParts, comboId, comboParts, comboLabel, validateCombo } from './combo.js';
 import { comboFlags, finishBreakdown, pairingScores } from './matchups.js';
 import { fitModel, ratingsLeaderboard } from './ratings.js';
 import { candidateCombos, enumerateLegalDecks, opponentCombos } from './lineup.js';
@@ -48,6 +48,7 @@ export function ratingShift(model, a, b, n, sbar) {
 export function upsetChances(state, parts, { model = fitModel(state.battles), n = BATCH, maxDecks = LOOKAHEAD_DECKS } = {}) {
   if (!model) return [];
   const combosById = new Map((state.combos ?? []).map((c) => [c.id, c]));
+  const partsById = new Map(parts.map((p) => [p.id, p]));
   const cands = candidateCombos(state, parts).filter((id) => model.idx.has(id));
   const rOf = (id) => model.r[model.idx.get(id)];
   const decks = enumerateLegalDecks(cands, combosById)
@@ -59,8 +60,7 @@ export function upsetChances(state, parts, { model = fitModel(state.battles), n 
   const out = [];
   for (let x = 0; x < cands.length; x++) for (let y = x + 1; y < cands.length; y++) {
     const a = cands[x], b = cands[y];
-    const pa = new Set(comboParts(combosById.get(a)));
-    if (comboParts(combosById.get(b)).some((p) => pa.has(p))) continue;
+    if (blockingParts(combosById.get(a), combosById.get(b), partsById).length) continue;
     const i = model.idx.get(a), j = model.idx.get(b);
     const u = model.Ainv[i].map((v, k) => v - model.Ainv[j][k]);
     const q = u[i] - u[j];
@@ -106,20 +106,16 @@ export function suggestTests(state, parts, lineupResult) {
   const seen = new Set();
   const key = (a, b) => (a < b ? `${a}\n${b}` : `${b}\n${a}`);
 
-  // Never suggests two combos that share a part: they can't both be built at once.
+  // Never suggests two combos that can't both be built at once (a shared part you have only one of).
   function add(kind, left, right, reason, replaces = null) {
     if (!left || !right || left.id === right.id || seen.has(key(left.id, right.id))) return false;
-    const rp = new Set(comboParts(right));
-    if (comboParts(left).some((p) => rp.has(p))) return false;
+    if (blockingParts(left, right, partsById).length) return false;
     seen.add(key(left.id, right.id));
     out.push({ kind, left, right, battles: BATCH, reason, replaces });
     return true;
   }
   const addPair = (kind, a, b, reason) => add(kind, combosById.get(a), combosById.get(b), reason);
-  const sharesParts = (a, b) => {
-    const pa = new Set(comboParts(combosById.get(a)));
-    return comboParts(combosById.get(b)).some((p) => pa.has(p));
-  };
+  const sharesParts = (a, b) => blockingParts(combosById.get(a), combosById.get(b), partsById).length > 0;
 
   // 1. Screen: owned combos with no battles, newest first, against the strongest opponent they
   // share no parts with (else the strongest).
@@ -144,8 +140,7 @@ export function suggestTests(state, parts, lineupResult) {
   // The opponent that took the most points off this combo, among those the swapped combo
   // shares no parts with.
   function mostDangerous(comboIdValue, swapped) {
-    const mine = new Set(comboParts(swapped));
-    const ok = (f) => f !== comboIdValue && f !== swapped.id && combosById.has(f) && !comboParts(combosById.get(f)).some((p) => mine.has(p));
+    const ok = (f) => f !== comboIdValue && f !== swapped.id && combosById.has(f) && !blockingParts(swapped, combosById.get(f), partsById).length;
     let best = null;
     let bestPts = 0;
     for (const f of field) {

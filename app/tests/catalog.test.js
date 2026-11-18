@@ -91,3 +91,10 @@ test('typeLabel maps catalog types and hides unknown', async () => {
   assert.equal(typeLabel('unknown'), null);
   assert.equal(typeLabel(null), null);
 });
+
+test('mergeParts carries the multiple flag', () => {
+  const [p] = mergeParts([{ id: 'bit:x', kind: 'bit', name: 'X' }], [], { 'bit:x': { owned: true, multiple: true } });
+  assert.equal(p.multiple, true);
+  const [q] = mergeParts([{ id: 'bit:x', kind: 'bit', name: 'X' }], [], {});
+  assert.equal(q.multiple, false);
+});

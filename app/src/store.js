@@ -353,6 +353,7 @@ export async function createStore(backend) {
       }
       const { [fromId]: dropped, ...overrides } = current.overrides;
       if (dropped?.owned) overrides[intoId] = { ...overrides[intoId], owned: true };
+      if (dropped?.multiple) overrides[intoId] = { ...overrides[intoId], multiple: true };
       return replace({
         ...current,
         userParts: current.userParts.filter((p) => p.id !== fromId),

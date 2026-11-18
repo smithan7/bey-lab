@@ -32,3 +32,9 @@ test('lineupKey ignores display names', () => {
   const n = base(); n.parts[0].displayName = 'Renamed';
   assert.equal(lineupKey(n.state, n.parts), k0);
 });
+
+test('lineupKey changes when a part is marked as owned multiple times', () => {
+  const k0 = lineupKey(base().state, base().parts);
+  const m = base(); m.parts[0].multiple = true;
+  assert.notEqual(lineupKey(m.state, m.parts), k0);
+});

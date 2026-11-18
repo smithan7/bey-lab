@@ -234,3 +234,18 @@ test('upset suggestions come between New and Fix, with the chance in the reason'
   assert.ok(out.length <= 8);
   assert.ok(out.filter((x) => x.kind === 'fix').length <= 2);
 });
+
+test('a shared part marked "have multiple" allows the matchup', () => {
+  // Wizard Rod 2-60 Gear Ball vs a second Wizard Rod combo: allowed only with multiple Wizard Rods.
+  const w2c = { blade: { type: 'single', bladeId: 'blade:wizard-rod' }, ratchet: 'ratchet:9-60', bit: 'bit:ball' };
+  const W2 = { ...w2c, id: comboId(w2c) };
+  const st = mkState([], [...seed.combos.filter((c) => c.id === W), W2]);
+  st.combos = st.combos.map((c) => ({ ...c, createdAt: c.id === W2.id ? 2 : 1 }));
+  const own = (extra) => parts.map((p) => (['ratchet:9-60', 'bit:ball'].includes(p.id) ? { ...p, owned: true } : p))
+    .map((p) => (p.id === 'blade:wizard-rod' ? { ...p, ...extra } : p));
+  const without = suggestTests(st, own({}), { ranked: [], ratings: [] });
+  assert.equal(without.length, 0);
+  const withMulti = suggestTests(st, own({ multiple: true }), { ranked: [], ratings: [] });
+  assert.equal(withMulti.length, 1);
+  assert.deepEqual([withMulti[0].left.id, withMulti[0].right.id].sort(), [W, W2.id].sort());
+});

@@ -97,3 +97,18 @@ test('partRefName prefixes CX components with their kind', () => {
     '2-60', 'Free Ball', 'My Rod', 'nope',
   ]);
 });
+
+import { blockingParts } from '../src/combo.js';
+
+test('blockingParts: shared parts block unless owned and marked multiple', () => {
+  const a = { blade: { type: 'single', bladeId: 'blade:x' }, ratchet: 'ratchet:3-60', bit: 'bit:flat' };
+  const b = { blade: { type: 'single', bladeId: 'blade:x' }, ratchet: 'ratchet:4-60', bit: 'bit:flat' };
+  const c = { blade: { type: 'single', bladeId: 'blade:y' }, ratchet: 'ratchet:5-60', bit: 'bit:ball' };
+  const pm = (o) => new Map(Object.entries(o).map(([id, v]) => [id, { id, ...v }]));
+  assert.deepEqual(blockingParts(a, c, pm({})), []);
+  assert.deepEqual(blockingParts(a, b, pm({})).sort(), ['bit:flat', 'blade:x']);
+  assert.deepEqual(blockingParts(a, b, pm({ 'blade:x': { owned: true, multiple: true } })), ['bit:flat']);
+  assert.deepEqual(blockingParts(a, b, pm({ 'blade:x': { owned: true, multiple: true }, 'bit:flat': { owned: true, multiple: true } })), []);
+  // Multiple without owned doesn't count.
+  assert.deepEqual(blockingParts(a, b, pm({ 'blade:x': { owned: false, multiple: true }, 'bit:flat': { owned: true, multiple: true } })), ['blade:x']);
+});

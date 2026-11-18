@@ -132,7 +132,7 @@ export const tab = {
       const tag = typeTag(p.type);
       if (tag) t.append(tag);
       t.append(s);
-      if (p.owned) t.append(text('span', 'badge', '✓ Owned'));
+      if (p.owned) t.append(text('span', 'badge', p.multiple ? '✓ Owned · multiple' : '✓ Owned'));
       const info = h('button', { type: 'button', class: 'info', 'aria-label': `Details for ${p.displayName}` });
       info.textContent = 'ⓘ';
       info.addEventListener('click', (e) => { e.stopPropagation(); openDetail(ctx, p.id); });
@@ -208,6 +208,18 @@ function openDetail(ctx, partId) {
     if (part.name !== part.displayName) body.append(text('p', 'muted', `Catalog name: ${part.name}`));
     const alts = (part.altNames ?? []).join(', ');
     if (alts) body.append(text('p', 'muted', `Also known as: ${alts}`));
+
+    // How many you own: only matters for testing, since two combos sharing a part can battle
+    // each other only if you have more than one of it. Decks still can't repeat a part.
+    if (part.owned) {
+      const cb = h('input', { type: 'checkbox', checked: !!part.multiple });
+      cb.addEventListener('change', () => act(async () => {
+        await ctx.store.setOverride(partId, { multiple: cb.checked });
+        toast(`${part.displayName}: ${cb.checked ? 'you have multiple' : 'you have one'}`);
+      }));
+      body.append(h('label', { class: 'check' }, cb, 'Have multiple'),
+        text('p', 'muted', 'Lets Next suggest two combos that both use this part against each other.'));
+    }
 
     // photos
     const refBox = h('figure', { class: 'ph' });
