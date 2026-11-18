@@ -13,7 +13,8 @@ function hashStr(s) {
 // the combo ids and which parts are owned (display names don't matter).
 export function lineupKey(state, parts) {
   const bats = state.battles.map((b) => `${b.id}|${b.winner}|${b.finish}|${b.points}|${b.left}|${b.right}`).join('\n');
-  const owned = parts.filter((p) => p.owned).map((p) => p.id).sort().join(',');
+  // Owned parts, with * marking ones owned more than once (Next can pair combos sharing them).
+  const owned = parts.filter((p) => p.owned).map((p) => (p.multiple ? `${p.id}*` : p.id)).sort().join(',');
   return hashStr(`${bats}#${state.combos.map((c) => c.id).join(',')}#${owned}`);
 }
 

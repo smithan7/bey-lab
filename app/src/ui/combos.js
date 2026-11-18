@@ -1,10 +1,11 @@
 // Combos tab: one report card per combo, ordered by EV rating, with its results against every opponent faced.
 // DOM is built with textContent only (part names can be user-entered).
-import { comboLabel, comboParts, partRefName } from '../combo.js';
+import { blockingParts, comboLabel, comboParts, partRefName } from '../combo.js';
 import { ratingsLeaderboard } from '../ratings.js';
 import { matchupStats } from '../stats.js';
 import { pairingScores, finishBreakdown, comboFlags } from '../matchups.js';
 import { makeRng } from '../rng.js';
+import { battleScore } from '../scoring.js';
 import { h, comboThumbs, openComboBuilder, openSheet } from './pickers.js';
 import { toast } from './log.js';
 
@@ -239,11 +240,10 @@ function justBuiltPanel(ctx, state, rankedIds) {
   const label = comboLabel(c, ctx.partsById);
   const panel = h('section', { class: 'built', 'aria-label': 'New combo' });
   panel.append(h('p', { class: 'detail-title' }, `New: ${label}`));
-  const mine = new Set(comboParts(c));
   const byId = new Map(state.combos.map((x) => [x.id, x]));
-  const shares = (id) => comboParts(byId.get(id)).some((p) => mine.has(p));
+  const shares = (id) => blockingParts(c, byId.get(id), ctx.partsById).length > 0;
   const pool = rankedIds.filter((id) => id !== c.id && byId.has(id));
-  // Only opponents it shares no parts with, so both can be built at once.
+  // Only opponents it can be built alongside (no shared part you have just one of).
   const opps = pool.filter((id) => !shares(id)).slice(0, 3);
   if (opps.length) {
     panel.append(h('p', { class: 'muted' }, 'Test it against the strongest combos — tap one to open the Log with both combos picked:'));
@@ -263,6 +263,40 @@ function justBuiltPanel(ctx, state, rankedIds) {
   return panel;
 }
 
+export const SORTS = [
+  { key: 'rating', label: 'Rating', note: 'Sorted by rating: expected points per battle against the average tested combo, counting how strong each opponent was.' },
+  { key: 'ev', label: 'EV', note: 'Sorted by EV: plain average points per battle against everyone faced.' },
+  { key: 'battles', label: 'Most battles', note: 'Most battles first.' },
+  { key: 'newest', label: 'Newest', note: 'Newest combos first.' },
+];
+
+// Tested combos (those with a rating) in the chosen order; ties fall back to rating.
+export function sortCombos(state, ratingById, by) {
+  const known = new Set(state.combos.map((c) => c.id));
+  const ids = state.combos.map((c) => c.id).filter((id) => ratingById.has(id));
+  const r = (id) => ratingById.get(id).r;
+  let key;
+  if (by === 'ev') {
+    const sum = new Map(), cnt = new Map();
+    for (const b of state.battles) {
+      if (b.left === b.right || !known.has(b.left) || !known.has(b.right)) continue;
+      for (const id of [b.left, b.right]) {
+        sum.set(id, (sum.get(id) ?? 0) + battleScore(b, id));
+        cnt.set(id, (cnt.get(id) ?? 0) + 1);
+      }
+    }
+    key = (id) => (cnt.get(id) ? sum.get(id) / cnt.get(id) : -Infinity);
+  } else if (by === 'battles') key = (id) => ratingById.get(id).n;
+  else if (by === 'newest') {
+    const at = new Map(state.combos.map((c) => [c.id, c.createdAt ?? 0]));
+    key = (id) => at.get(id);
+  } else key = r;
+  return ids.sort((a, b) => key(b) - key(a) || r(b) - r(a));
+}
+
+// Session memory: the chosen sort.
+let sortBy = 'rating';
+
 export const tab = {
   id: 'combos',
   label: 'Combos',
@@ -276,13 +310,20 @@ export const tab = {
     const played = new Set();
     for (const b of state.battles) { played.add(b.left); played.add(b.right); }
     const byId = new Map(state.combos.map((c) => [c.id, c]));
-    const ordered = [...ranked, ...state.combos.filter((c) => played.has(c.id) && !ranked.includes(c.id)).map((c) => c.id)];
+    const sorted = sortCombos(state, ratingById, sortBy);
+    const ordered = [...sorted, ...state.combos.filter((c) => played.has(c.id) && !ratingById.has(c.id)).map((c) => c.id)];
     const untested = state.combos.filter((c) => !played.has(c.id));
 
     const panel = justBuiltPanel(ctx, state, ranked);
     if (panel) el.append(panel);
     if (!state.combos.length) { el.append(h('p', { class: 'muted' }, 'No combos yet. Tap New combo to build one.')); return; }
-    el.append(h('p', { class: 'muted' }, 'Ordered by EV rating (expected points per battle against the average tested combo). Intervals are 95%.'));
+    const bar = h('div', { class: 'chips type-filter', role: 'group', 'aria-label': 'Sort combos' });
+    for (const s of SORTS) {
+      const b = h('button', { type: 'button', class: 'chip', 'aria-pressed': String(s.key === sortBy) }, s.label);
+      b.addEventListener('click', () => { sortBy = s.key; ctx.refresh(); });
+      bar.append(b);
+    }
+    el.append(bar, h('p', { class: 'muted' }, `${SORTS.find((s) => s.key === sortBy).note} Intervals are 95%.`));
     for (const id of ordered) el.append(buildCard(ctx, state, byId.get(id), ratingById, topIds));
     if (untested.length) {
       const d = h('details', { class: 'untested' }, h('summary', {}, `Untested combos (${untested.length})`));

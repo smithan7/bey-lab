@@ -300,3 +300,11 @@ test('import of combos without createdAt succeeds and leaves it absent', async (
   assert.equal(s.state().combos[0].createdAt, undefined);
   assert.equal(s.state().field.length, 1);
 });
+
+test('mergePart carries the multiple flag along with ownership', async () => {
+  const s = await createStore(new MemoryBackend());
+  await s.addUserPart({ id: 'user:m', kind: 'bit', name: 'M' });
+  await s.setOverride('user:m', { owned: true, multiple: true });
+  const st = await s.mergePart('user:m', 'bit:ok');
+  assert.deepEqual(st.overrides['bit:ok'], { owned: true, multiple: true });
+});

@@ -123,3 +123,10 @@ export function deckClashes(combos) {
 export function isLegalDeck(combos) {
   return deckClashes(combos).length === 0;
 }
+
+// Parts two combos share that stop them being built at the same time: every shared part,
+// except ones you own and have marked as having multiple of.
+export function blockingParts(a, b, partsById) {
+  const mine = new Set(comboParts(a));
+  return [...new Set(comboParts(b))].filter((id) => mine.has(id) && !(partsById.get(id)?.owned && partsById.get(id)?.multiple));
+}

@@ -89,6 +89,7 @@ export function mergeParts(catalogParts, userParts, overrides = {}) {
       ...p,
       displayName: o.preferredName || p.name,
       owned: !!o.owned,
+      multiple: !!o.multiple,
       coverPhotoId: o.coverPhotoId ?? null,
       hidden: !!o.hidden,
     };

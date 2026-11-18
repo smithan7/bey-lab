@@ -17,7 +17,7 @@ Address (once published): https://smithan7.github.io/bey-lab/
   says how much of it rests on tested matchups.
 - **Next** suggests what to test: new combos first, then the matchups with the highest chance of
   changing your best deck after 10 more battles, then part-swap fixes. It never pairs two combos
-  that share a part.
+  that share a part, unless you've marked that part **Have multiple** (Parts tab → ⓘ).
 
 ## Install on the iPad
 
