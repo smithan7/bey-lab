@@ -1,11 +1,11 @@
 // Next tab: what to test next, from suggestTests over the shared lineup computation.
 import { comboLabel } from '../combo.js';
 import { suggestTests } from '../suggest.js';
-import { h } from './pickers.js';
+import { h, comboThumbs } from './pickers.js';
 import { toast } from './log.js';
 import { watchLineup } from './lineup.js';
 
-const KIND = { screen: 'New', contender: 'Contender', topcheck: 'Top deck', fix: 'Fix', narrow: 'Narrow' };
+const KIND = { screen: 'New', upset: 'Could change best deck', fix: 'Fix' };
 
 async function start(ctx, s) {
   const known = new Set(ctx.store.state().combos.map((c) => c.id));
@@ -24,12 +24,20 @@ export const tab = {
       el.replaceChildren();
       const partsById = new Map(parts.map((p) => [p.id, p]));
       const list = suggestTests(state, parts, result);
-      if (!list.length) { el.append(h('p', { class: 'muted' }, 'Nothing to suggest right now.')); return; }
-      el.append(h('p', { class: 'muted' }, 'Suggested tests, most useful first. Each is about 10 battles.'));
+      if (!list.length) {
+        el.append(h('p', { class: 'muted' }, state.battles.length
+          ? 'Your best deck is settled on current data — no matchup has a real chance of changing it. Build a new combo to test.'
+          : 'Build some combos to get started.'));
+        return;
+      }
+      el.append(h('p', { class: 'muted' }, 'Suggested tests: new combos first, then the matchups most likely to change your best deck. Each is about 10 battles.'));
       list.forEach((s) => {
         const row = h('article', { class: 'report', 'data-kind': s.kind });
         row.append(h('div', { class: 'chips' }, h('span', { class: 'chip' }, KIND[s.kind] ?? s.kind)));
-        row.append(h('h3', {}, `${comboLabel(s.left, partsById)} vs ${comboLabel(s.right, partsById)}`));
+        row.append(h('h3', { class: 'sr-only' }, `${comboLabel(s.left, partsById)} vs ${comboLabel(s.right, partsById)}`));
+        // Each side with its part photos, so it's clear which physical beys to build.
+        const side = (c) => h('div', { class: 'side' }, comboThumbs(c, partsById), h('strong', {}, comboLabel(c, partsById)));
+        row.append(h('div', { class: 'matchup', 'aria-hidden': 'true' }, side(s.left), h('span', { class: 'vs' }, 'vs'), side(s.right)));
         row.append(h('p', {}, s.reason));
         const bar = h('div', { class: 'toggles' });
         const go = h('button', { type: 'button', class: 'primary' }, 'Start');

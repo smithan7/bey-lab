@@ -103,3 +103,22 @@ test('ratingsLeaderboard leaves out battles whose combo no longer exists', () =>
   const lb = ratingsLeaderboard(state);
   assert.deepEqual(lb.map((x) => x.comboId).sort(), ['A', 'B']);
 });
+
+import { fitModel } from '../src/ratings.js';
+
+test('fitModel exposes the inverse matrix: A·A⁻¹ = I and r matches fitRatings up to centring', () => {
+  const b = [...games('A', 'B', 2, 4), ...games('B', 'C', 1, 6), ...games('C', 'A', -3, 3)];
+  const m = fitModel(b);
+  const fr = fitRatings(b);
+  const k = m.ids.length;
+  // Rebuild A and check A·Ainv ≈ I.
+  const A = Array.from({ length: k }, (_, i) => Array.from({ length: k }, (_, j) => (i === j ? LAMBDA : 0)));
+  for (const g of b) { const i = m.idx.get(g.left), j = m.idx.get(g.right); A[i][i]++; A[j][j]++; A[i][j]--; A[j][i]--; }
+  for (let i = 0; i < k; i++) for (let j = 0; j < k; j++) {
+    let s = 0; for (let t = 0; t < k; t++) s += A[i][t] * m.Ainv[t][j];
+    assert.ok(Math.abs(s - (i === j ? 1 : 0)) < 1e-9);
+  }
+  const mean = m.r.reduce((x, y) => x + y, 0) / k;
+  for (const id of m.ids) assert.ok(Math.abs(m.r[m.idx.get(id)] - mean - fr.get(id).r) < 1e-12);
+  assert.ok(m.sigma2 >= SIGMA2_FLOOR);
+});

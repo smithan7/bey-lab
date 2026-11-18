@@ -43,10 +43,11 @@ function solveChol(L, b) {
 }
 
 /**
- * battles → Map<comboId, { r, se, lo, hi, n, opponents }>. r is centred (mean 0 over rated
- * combos); lo/hi = r ∓ 1.96·se. Mirror battles are ignored. Combos with no battles are absent.
+ * The fitted ridge model behind the ratings: ids, idx (id → row), r (uncentred), Ainv (rows of
+ * (XᵀX + λI)⁻¹), sigma2 (residual variance, floored), n (battles per combo), opp (opponent sets).
+ * Null when there are no non-mirror battles.
  */
-export function fitRatings(battles, { lambda = LAMBDA } = {}) {
+export function fitModel(battles, { lambda = LAMBDA } = {}) {
   const rows = (battles ?? []).filter((b) => b.left !== b.right);
   const ids = [];
   const idx = new Map();
@@ -57,8 +58,7 @@ export function fitRatings(battles, { lambda = LAMBDA } = {}) {
     opp.get(b.right).add(b.left);
   }
   const m = ids.length;
-  const out = new Map();
-  if (!m) return out;
+  if (!m) return null;
 
   const A = Array.from({ length: m }, () => new Float64Array(m));
   const rhs = new Float64Array(m);
@@ -80,16 +80,32 @@ export function fitRatings(battles, { lambda = LAMBDA } = {}) {
     rss += e * e;
   }
   const sigma2 = Math.max(SIGMA2_FLOOR, rss / Math.max(1, rows.length - m));
-  const mean = r.reduce((a, x) => a + x, 0) / m;
 
+  // Ainv is symmetric, so its columns double as rows.
+  const Ainv = [];
   const unit = new Float64Array(m);
   for (let i = 0; i < m; i++) {
     unit.fill(0); unit[i] = 1;
-    const col = solveChol(L, unit);
-    const se = Math.sqrt(sigma2 * col[i]);
-    const ri = r[i] - mean;
-    out.set(ids[i], { r: ri, se, lo: ri - 1.96 * se, hi: ri + 1.96 * se, n: n[i], opponents: opp.get(ids[i]).size });
+    Ainv.push(solveChol(L, unit));
   }
+  return { ids, idx, r, Ainv, sigma2, n, opp };
+}
+
+/**
+ * battles → Map<comboId, { r, se, lo, hi, n, opponents }>. r is centred (mean 0 over rated
+ * combos); lo/hi = r ∓ 1.96·se. Mirror battles are ignored. Combos with no battles are absent.
+ */
+export function fitRatings(battles, opts = {}) {
+  const out = new Map();
+  const model = fitModel(battles, opts);
+  if (!model) return out;
+  const { ids, r, Ainv, sigma2, n, opp } = model;
+  const mean = r.reduce((a, x) => a + x, 0) / ids.length;
+  ids.forEach((id, i) => {
+    const se = Math.sqrt(sigma2 * Ainv[i][i]);
+    const ri = r[i] - mean;
+    out.set(id, { r: ri, se, lo: ri - 1.96 * se, hi: ri + 1.96 * se, n: n[i], opponents: opp.get(id).size });
+  });
   return out;
 }
 

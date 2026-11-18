@@ -166,3 +166,9 @@ button:disabled { opacity: .5; }
 .list-btn.choice.danger strong { color: var(--danger); }
 .combo-parts { margin: 8px 0 16px; }
 .combo-part { display: grid; grid-template-columns: 110px 1fr auto; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.matchup { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: start; margin: 8px 0; }
+.matchup .side { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.matchup .side .thumbs { flex-wrap: wrap; margin-top: 0; }
+.matchup .side strong { overflow-wrap: anywhere; }
+.matchup .vs { align-self: center; color: var(--muted); font-weight: 700; }

@@ -55,7 +55,7 @@ const bat = (left, right, pts, finish) => ({
 const many = (l, r, list) => list.map((p) => bat(l, r, p));
 const mkState = (battles, combos = seed.combos) => ({ ...seed, combos, battles });
 const none = { ranked: [] };
-const ORDER = ['screen', 'contender', 'topcheck', 'fix', 'narrow'];
+const ORDER = ['screen', 'upset', 'fix'];
 const kindOk = (list) => list.every((s, i) => i === 0 || ORDER.indexOf(list[i - 1].kind) <= ORDER.indexOf(s.kind));
 const idsOf = (s) => [s.left.id, s.right.id].sort().join('|');
 const pair = (a, b) => [a, b].sort().join('|');
@@ -92,59 +92,6 @@ test('screen caps at MAX_SCREEN and skips combos with unowned parts', () => {
   for (const s of screens) assert.ok(!extra.some((e) => e.id === s.left.id), 'unowned combo screened');
 });
 
-test('contender: range reaching the #1 deck gets its strongest unfaced opponent; lower ones get nothing', () => {
-  // H strong vs everyone; G weak. #1 deck [H, O, P]; candidate W close; candidate C far below.
-  const b = [...many(H, O, [2, 2, 1, 2]), ...many(H, P, [2, 1, 2, 2]), ...many(O, P, [1, -1, 1, -1]),
-    ...many(W, O, [1, -1, 1]), ...many(C, H, Array(20).fill(-3)), ...many(C, O, Array(20).fill(-3)), ...many(C, P, Array(20).fill(-3))];
-  const st = mkState(b);
-  const out = suggestTests(st, parts, withRatings(st, [{ deck: [H, O, P] }]));
-  const cont = out.filter((s) => s.kind === 'contender');
-  assert.ok(cont.some((s) => s.left.id === W && s.right.id === H), JSON.stringify(cont.map(idsOf)));
-  assert.ok(!cont.some((s) => s.left.id === C));
-  assert.ok(!out.some((s) => s.kind === 'fix' && s.replaces === C));
-});
-
-test('contender who has faced everyone gets its least-tested opponent', () => {
-  const b = [...many(W, C, [1, 1, 1, 1, 1]), ...many(W, P, [1]), ...many(C, P, [1, -1, 1, -1])];
-  const st = mkState(b, seed.combos.filter((c) => [W, C, P].includes(c.id)));
-  const out = suggestTests(st, parts, withRatings(st, []));
-  const s = out.find((x) => x.kind === 'contender' && x.left.id === W);
-  assert.ok(s);
-  assert.equal(s.right.id, P);
-});
-
-test('no ranked deck: every tested candidate is a contender, ordered by upper bound', () => {
-  const b = [...many(W, C, [2, 2, 2]), ...many(P, H, [1, -1])];
-  const st = mkState(b);
-  const out = suggestTests(st, parts, withRatings(st, []));
-  const cont = out.filter((s) => s.kind === 'contender').map((s) => s.left.id);
-  const lb = ratingsLeaderboard(st);
-  const hi = new Map(lb.map((r) => [r.comboId, r.hi]));
-  for (let i = 1; i < cont.length; i++) assert.ok(hi.get(cont[i - 1]) >= hi.get(cont[i]));
-  assert.ok(cont.includes(W));
-});
-
-test('topcheck: #1 member thinly tested vs a strong opponent, strongest first', () => {
-  const b = [...many(G, O, [3, 3, 3, 3, 3, 3]), ...many(G, H, [3, 3, 3, 3, 3]), ...many(W, H, [1, -1, 1, -1, 1, -1]), ...many(W, O, [1, -1, 1, -1, 1, -1]),
-    ...many(C, O, [1, -1, 1, -1, 1, -1]), ...many(P, O, [1, -1, 1, -1, 1, -1])];
-  const st = mkState(b);
-  const out = suggestTests(st, parts, withRatings(st, [{ deck: [W, C, P] }]));
-  const tc = out.filter((s) => s.kind === 'topcheck');
-  assert.ok(tc.length > 0);
-  assert.equal(tc[0].right.id, G); // G is the strongest opponent
-  assert.match(tc[0].reason, /no battles against/);
-});
-
-test('narrow: wide intervals past the top-deck check are narrow; tight ones are not', () => {
-  const st = mkState([...many(W, C, [1]), ...many(W, P, [3, -3, 3, -3, 3, -3]), ...many(C, P, [1, 1, 1, 1, 1, 1])],
-    seed.combos.filter((c) => [W, C, P].includes(c.id)));
-  const out = suggestTests(st, parts, withRatings(st, [{ deck: [W, C, P] }]));
-  const kindOf = new Map(out.map((s) => [idsOf(s), s.kind]));
-  assert.equal(kindOf.get(pair(W, C)), 'topcheck'); // 1 battle: under-tested
-  assert.equal(kindOf.get(pair(W, P)), 'narrow'); // 6 battles, wide interval
-  assert.ok(!kindOf.has(pair(C, P)));
-});
-
 test('ko-risk fix swaps the bit of Rocket Griffon when it is in the #1 deck', () => {
   const st = mkState([...many(G, W, [-3, -3, -3, -3, 1, 1, 1, 1, 1, 1])]);
   const out = suggestTests(st, parts, withRatings(st, [{ deck: [G, C, H] }]));
@@ -169,15 +116,15 @@ test('a zero-clash ratchet swap beats a clashing bit swap', () => {
   assert.match(fix.reason, /different ratchet/);
 });
 
-test('cap of 8, kind order, and no duplicates', () => {
+test('at most 8, kind order, and no duplicates', () => {
   const b = [];
   const ids = [W, C, P, H, O, G];
   for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) b.push(...many(ids[i], ids[j], [1]));
   const st = mkState(b);
   const out = suggestTests(st, parts, withRatings(st, [{ deck: [W, C, H] }]));
-  assert.equal(out.length, 8);
+  assert.ok(out.length > 0 && out.length <= 8);
   assert.ok(kindOk(out));
-  assert.equal(new Set(out.map(idsOf)).size, 8);
+  assert.equal(new Set(out.map(idsOf)).size, out.length);
 });
 
 test('no battles at all: untested owned combos are screened against each other', () => {
@@ -186,4 +133,104 @@ test('no battles at all: untested owned combos are screened against each other',
   const screens = out.filter((s) => s.kind === 'screen');
   assert.equal(screens.length, 3);
   for (const s of screens) assert.notEqual(s.left.id, s.right.id);
+});
+
+test('no suggestion ever pairs combos that share a part', () => {
+  const shares = (x) => comboParts(x.left).some((p) => comboParts(x.right).includes(p));
+  const states = [
+    [mkState([...many(O, H, [3, 3, 3, 3, 3]), ...many(O, G, [3, 3, 3, 3]), ...many(P, H, [1, -1, 1]), ...many(W, C, [1, -1, 1, -1])]), [{ deck: [W, C, G] }]],
+    [mkState([]), []],
+    [mkState(many(H, O, [1, -1, 2])), []],
+    [mkState([...many(G, W, [-3, -3, -3, -3, 1, 1, 1, 1, 1, 1])]), [{ deck: [G, C, H] }]],
+  ];
+  let total = 0;
+  for (const [st, ranked] of states) {
+    const out = suggestTests(st, parts, withRatings(st, ranked));
+    total += out.length;
+    for (const x of out) assert.ok(!shares(x), `${x.kind}: ${label(x.left)} vs ${label(x.right)}`);
+    for (const x of out) assert.ok(!/needs two of/.test(x.reason));
+  }
+  assert.ok(total > 10);
+  for (const x of sugg) assert.ok(!shares(x), `seed ${x.kind}: ${label(x.left)} vs ${label(x.right)}`);
+});
+
+// ---- look-ahead: chance a matchup changes the best deck ----
+import { upsetChances, ratingShift, UPSET_MIN } from '../src/suggest.js';
+import { fitModel } from '../src/ratings.js';
+import { enumerateLegalDecks, candidateCombos as cands } from '../src/lineup.js';
+
+const lookState = () => mkState([
+  ...many(W, C, [1, 1, -1, 2, 1, -1, 1, 1]), ...many(W, G, [2, 1, 1, -1, 1, 1]), ...many(C, G, [1, -1, 1, -1, 1, -1]),
+  ...many(H, W, [1, -2]), ...many(O, C, [-1, -1, 1, -2, -1, -1, -1, -2, -1, 1]), ...many(P, G, [1, -1, -1, 1, -1, 1, -1, -1]),
+]);
+
+test('ratingShift matches a full refit after adding n battles', () => {
+  const st = lookState();
+  const model = fitModel(st.battles);
+  const sbar = 1;
+  const shifted = ratingShift(model, H, C, 10, sbar);
+  const refit = fitModel([...st.battles, ...many(H, C, Array(10).fill(1))]);
+  for (const id of model.ids) assert.ok(Math.abs(shifted[model.idx.get(id)] - refit.r[refit.idx.get(id)]) < 1e-9, id);
+});
+
+test('closed-form chance matches brute force over the predictive distribution', () => {
+  const st = lookState();
+  const model = fitModel(st.battles);
+  const list = upsetChances(st, parts, { model });
+  assert.ok(list.length > 0);
+  for (let i = 1; i < list.length; i++) assert.ok(list[i - 1].p >= list[i].p);
+  // Brute force for the top pairing: sample s̄, shift, argmax over the same deck set.
+  const { a, b, p } = list[0];
+  const byIdC = new Map(st.combos.map((c) => [c.id, c]));
+  const decks = enumerateLegalDecks(cands(st, parts), byIdC);
+  const score = (r, d) => d.reduce((s, id) => s + r[model.idx.get(id)], 0);
+  const best = (r) => decks.reduce((x, d) => (score(r, d) > score(r, x) ? d : x)).join();
+  const i = model.idx.get(a), j = model.idx.get(b);
+  const q = model.Ainv[i][i] - 2 * model.Ainv[i][j] + model.Ainv[j][j];
+  const mu = model.r[i] - model.r[j];
+  const sd = Math.sqrt(model.sigma2 * (1 / 10 + q));
+  const rng = makeRng(3);
+  const now = best(model.r);
+  let changed = 0;
+  const N = 20000;
+  for (let k = 0; k < N; k++) {
+    const z = Math.sqrt(-2 * Math.log(rng() || 1e-12)) * Math.cos(2 * Math.PI * rng());
+    if (best(ratingShift(model, a, b, 10, mu + sd * z)) !== now) changed++;
+  }
+  assert.ok(Math.abs(changed / N - p) < 0.02, `brute ${changed / N} vs closed ${p}`);
+});
+
+test('look-ahead only offers runnable matchups: owned, no shared parts', () => {
+  const st = lookState();
+  const owned = new Set(parts.filter((p) => p.owned).map((p) => p.id));
+  for (const { a, b } of upsetChances(st, parts, { model: fitModel(st.battles) })) {
+    const ca = st.combos.find((c) => c.id === a), cb = st.combos.find((c) => c.id === b);
+    assert.ok([...comboParts(ca), ...comboParts(cb)].every((x) => owned.has(x)));
+    assert.ok(!comboParts(ca).some((x) => comboParts(cb).includes(x)));
+  }
+});
+
+test('a settled pool offers no upsets above the threshold', () => {
+  // Three combos crush the rest over many battles: nothing plausible changes the best deck.
+  const strong = [W, C, G], weak = [H, O];
+  const b = [];
+  for (const s of strong) for (const w of weak) b.push(...many(s, w, Array(40).fill(3)));
+  b.push(...many(W, C, Array(30).fill(0).map((_, i) => (i % 2 ? 1 : -1))), ...many(W, G, Array(30).fill(0).map((_, i) => (i % 2 ? 1 : -1))));
+  const st = mkState(b);
+  assert.equal(UPSET_MIN, 0.02);
+  const out = suggestTests(st, parts, withRatings(st, [{ deck: strong }]));
+  assert.ok(!out.some((x) => x.kind === 'upset'), JSON.stringify(out.map((x) => [x.kind, idsOf(x)])));
+});
+
+test('upset suggestions come between New and Fix, with the chance in the reason', () => {
+  const st = lookState();
+  const out = suggestTests(st, parts, withRatings(st, [{ deck: [W, C, G] }]));
+  const kinds = out.map((x) => x.kind);
+  assert.ok(kinds.includes('upset'));
+  const order = ['screen', 'upset', 'fix'];
+  for (let i = 1; i < kinds.length; i++) assert.ok(order.indexOf(kinds[i - 1]) <= order.indexOf(kinds[i]));
+  const u = out.find((x) => x.kind === 'upset');
+  assert.match(u.reason, /^\d+% chance this changes your best deck\./);
+  assert.ok(out.length <= 8);
+  assert.ok(out.filter((x) => x.kind === 'fix').length <= 2);
 });

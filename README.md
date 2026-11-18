@@ -15,8 +15,9 @@ Address (once published): https://smithan7.github.io/bey-lab/
 - **Lineup** ranks legal decks (no shared parts) by their chance of winning a match against all
   tested combos. Matchups you haven't tested yet are estimated from the ratings, and each deck
   says how much of it rests on tested matchups.
-- **Next** suggests what to test: new combos first, then combos that could make the best deck,
-  then gaps in the best deck. Combos rated well below the best deck stop being suggested.
+- **Next** suggests what to test: new combos first, then the matchups with the highest chance of
+  changing your best deck after 10 more battles, then part-swap fixes. It never pairs two combos
+  that share a part.
 
 ## Install on the iPad
 
