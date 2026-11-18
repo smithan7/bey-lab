@@ -45,17 +45,25 @@ function lastBattle(battles) {
   return idx < 0 ? null : battles[idx];
 }
 
+// EV is from the left combo's side, so the axis is mirrored: +EV (left winning)
+// plots toward the left card, −EV toward the right card.
+export function intervalPositions(ev, evCI) {
+  const clamp = (v) => Math.min(3, Math.max(-3, v));
+  const pos = (v) => (3 - clamp(v)) / 6 * 100;
+  return { dot: pos(ev), fillLeft: pos(evCI[1]), fillWidth: pos(evCI[0]) - pos(evCI[1]) };
+}
+
 function intervalBar(r) {
-  const pct = (v) => `${(Math.min(3, Math.max(-3, v)) + 3) / 6 * 100}%`;
+  const p = intervalPositions(r.ev, r.evCI);
   const track = h('div', { class: 'ibar', role: 'img',
-    'aria-label': `95% interval ${r.evCI[0].toFixed(2)} to ${r.evCI[1].toFixed(2)}, EV ${r.ev.toFixed(2)}` });
+    'aria-label': `95% interval ${r.evCI[0].toFixed(2)} to ${r.evCI[1].toFixed(2)}, EV ${r.ev.toFixed(2)} for left` });
   const fill = h('div', { class: 'ibar-fill' });
-  fill.style.left = pct(r.evCI[0]);
-  fill.style.width = `${(Math.min(3, r.evCI[1]) - Math.max(-3, r.evCI[0])) / 6 * 100}%`;
+  fill.style.left = `${p.fillLeft}%`;
+  fill.style.width = `${p.fillWidth}%`;
   const zero = h('div', { class: 'ibar-zero' }); zero.style.left = '50%';
-  const dot = h('div', { class: 'ibar-ev' }); dot.style.left = pct(r.ev);
+  const dot = h('div', { class: 'ibar-ev' }); dot.style.left = `${p.dot}%`;
   track.append(fill, zero, dot);
-  const axis = h('div', { class: 'ibar-axis' }, h('span', {}, '−3'), h('span', {}, '0'), h('span', {}, '+3'));
+  const axis = h('div', { class: 'ibar-axis' }, h('span', {}, '◀ Left +3'), h('span', {}, '0'), h('span', {}, 'Right +3 ▶'));
   return h('div', {}, track, axis);
 }
 
