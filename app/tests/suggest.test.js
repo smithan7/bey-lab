@@ -55,7 +55,7 @@ const bat = (left, right, pts, finish) => ({
 const many = (l, r, list) => list.map((p) => bat(l, r, p));
 const mkState = (battles, combos = seed.combos) => ({ ...seed, combos, battles });
 const none = { ranked: [] };
-const ORDER = ['screen', 'upset', 'fix'];
+const ORDER = ['screen', 'unlock', 'upset', 'fix'];
 const kindOk = (list) => list.every((s, i) => i === 0 || ORDER.indexOf(list[i - 1].kind) <= ORDER.indexOf(s.kind));
 const idsOf = (s) => [s.left.id, s.right.id].sort().join('|');
 const pair = (a, b) => [a, b].sort().join('|');
@@ -283,4 +283,74 @@ test('upset reasons say what would change', () => {
   const out = suggestTests(st, parts, withRatings(st, [{ deck: [W, C, G] }]));
   const u = out.find((x) => x.kind === 'upset');
   assert.match(u.reason, /If .+ does (well|badly), .+ (could|would) (replace|come in for) /);
+});
+
+// ---- unlock: two top combos that can't share a deck ----
+import { MAX_UNLOCK } from '../src/suggest.js';
+
+// C (Cobalt Drake 1-60 Free Flat) and H (Red Hulk 1-60 Low Rush) top the ratings and share 1-60.
+const unlockState = () => mkState([
+  ...many(C, W, [2, 2, 1, 2, 1, 2]), ...many(C, P, [2, 1, 2, 2, 1]), ...many(H, W, [2, 1, 2, 1, 2]), ...many(H, P, [1, 2, 2, 1, 2]),
+  ...many(W, P, [1, -1, 1, -1]), ...many(G, W, [-1, -1, 1, -1]),
+]);
+const withRatchet = (id) => parts.map((p) => (p.id === id ? { ...p, owned: true } : p));
+
+test('unlock: top combos sharing a part get a variant of the lower-rated one', () => {
+  const st = unlockState();
+  const lb = ratingsLeaderboard(st);
+  assert.deepEqual(lb.slice(0, 2).map((r) => r.comboId).sort(), [C, H].sort());
+  const lower = lb[0].comboId === C ? H : C, higher = lower === C ? H : C;
+  // 4-80 is listed first but 3-60 keeps the original's height, so 3-60 wins the tie.
+  const ps = [...withRatchet('ratchet:3-60').filter((p) => p.id === 'ratchet:4-80').map((p) => ({ ...p, owned: true })), ...withRatchet('ratchet:3-60').filter((p) => p.id !== 'ratchet:4-80')];
+  const out = suggestTests(st, ps, withRatings(st, []));
+  const un = out.filter((s) => s.kind === 'unlock');
+  assert.equal(MAX_UNLOCK, 2);
+  assert.ok(un.length >= 1 && un.length <= 2);
+  const u = un[0];
+  const old = st.combos.find((c) => c.id === lower);
+  assert.equal(u.replaces, lower);
+  assert.equal(u.left.blade.bladeId, old.blade.bladeId);
+  assert.equal(u.left.bit, old.bit);
+  assert.equal(u.left.ratchet, 'ratchet:3-60'); // 2-60 is taken by other top combos (W, P)
+  assert.equal(validateCombo(u.left, byId), null);
+  const hi = st.combos.find((c) => c.id === higher);
+  assert.ok(!comboParts(u.left).some((p) => comboParts(hi).includes(p)), 'variant still clashes with the higher combo');
+  assert.match(u.reason, /both need 1-60/);
+  assert.match(u.reason, /run both/);
+  // Order: unlock right after new combos.
+  const order = ['screen', 'unlock', 'upset', 'fix'];
+  for (let i = 1; i < out.length; i++) assert.ok(order.indexOf(out[i - 1].kind) <= order.indexOf(out[i].kind));
+});
+
+test('unlock falls back to a part other top combos use when nothing else is owned', () => {
+  const st = unlockState();
+  const out = suggestTests(st, parts, withRatings(st, []));
+  const u = out.find((s) => s.kind === 'unlock');
+  assert.ok(u);
+  assert.equal(u.left.ratchet, 'ratchet:2-60');
+});
+
+test('unlock ignores "have multiple": a deck still cannot repeat a part', () => {
+  const st = unlockState();
+  const ps = withRatchet('ratchet:3-60').map((p) => (p.id === 'ratchet:1-60' ? { ...p, multiple: true } : p));
+  assert.ok(suggestTests(st, ps, withRatings(st, [])).some((s) => s.kind === 'unlock'));
+});
+
+test('no unlock when the variant has already been tested, or only a blade is shared', () => {
+  const st = unlockState();
+  const lb = ratingsLeaderboard(st);
+  const lower = lb[1].comboId;
+  const old = st.combos.find((c) => c.id === lower);
+  const v = { blade: old.blade, ratchet: 'ratchet:2-60', bit: old.bit };
+  const V = { ...v, id: comboId(v) };
+  const st2 = { ...st, combos: [...st.combos, V], battles: [...st.battles, ...many(V.id, G, [1, -1])] };
+  // Only 2-60 is an alternative and that variant exists with battles: nothing new to suggest for it.
+  const out = suggestTests(st2, parts, withRatings(st2, []));
+  assert.ok(!out.some((s) => s.kind === 'unlock' && s.left.id === V.id));
+  // Two Wizard Rod combos share only the blade: no unlock (it's the same bey).
+  const w2 = { blade: { type: 'single', bladeId: 'blade:wizard-rod' }, ratchet: 'ratchet:1-60', bit: 'bit:hexa' };
+  const W2 = { ...w2, id: comboId(w2) };
+  const st3 = mkState([...many(W, C, [3, 3, 3, 3]), ...many(W2.id, C, [3, 3, 3, 3]), ...many(W, W2.id, [1, -1])], [...seed.combos, W2]);
+  const out3 = suggestTests(st3, parts, withRatings(st3, []));
+  assert.ok(!out3.some((s) => s.kind === 'unlock' && [W, W2.id].includes(s.replaces) && s.reason.includes('Wizard Rod') && /both need Wizard Rod/.test(s.reason)));
 });

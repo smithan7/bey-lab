@@ -5,7 +5,7 @@ import { h, comboThumbs } from './pickers.js';
 import { toast } from './log.js';
 import { watchLineup } from './lineup.js';
 
-const KIND = { screen: 'New', upset: 'Could change best deck', fix: 'Fix' };
+const KIND = { screen: 'New', unlock: 'Unlock', upset: 'Could change best deck', fix: 'Fix' };
 
 async function start(ctx, s) {
   const known = new Set(ctx.store.state().combos.map((c) => c.id));
@@ -30,7 +30,7 @@ export const tab = {
           : 'Build some combos to get started.'));
         return;
       }
-      el.append(h('p', { class: 'muted' }, 'Suggested tests: new combos first, then the matchups most likely to change your best deck. Each is about 10 battles.'));
+      el.append(h('p', { class: 'muted' }, 'Suggested tests: new combos, then unlocks (a part swap so two top combos can share a deck), then the matchups most likely to change your best deck. Each is about 10 battles.'));
       const ahead = lookaheadDeck(state, parts);
       if (ahead && list.some((s) => s.kind === 'upset')) {
         const names = ahead.map((id) => comboLabel(state.combos.find((c) => c.id === id), partsById)).join(' / ');
