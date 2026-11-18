@@ -96,7 +96,7 @@ export function suggestTests(state, parts, lineupResult) {
   }
   checks.sort((x, y) => rOf(y.o) - rOf(x.o));
   for (const { a, o, n } of checks) {
-    addPair('topcheck', a, o, `${label(combosById.get(a))} is in the best deck but has ${n === 0 ? 'no battles' : `only ${n} battle${n === 1 ? '' : 's'}`} against ${label(combosById.get(o))}, one of the strongest combos.`);
+    addPair('topcheck', a, o, `${label(combosById.get(a))} is in the best deck but has ${n === 0 ? 'no battles' : `only ${n} battle${n === 1 ? '' : 's'}`} against ${label(combosById.get(o))} (rated ${fmt(rOf(o))}).`);
   }
 
   // 4. Fix: burst-risk / ko-risk part swaps, only for #1 deck members and contenders.
