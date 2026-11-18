@@ -172,3 +172,26 @@ button:disabled { opacity: .5; }
 .matchup .side .thumbs { flex-wrap: wrap; margin-top: 0; }
 .matchup .side strong { overflow-wrap: anywhere; }
 .matchup .vs { align-self: center; color: var(--muted); font-weight: 700; }
+.deck-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.deck-head h3 { display: inline; margin-right: 8px; }
+.deck .win { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.deck .win-pct { font-size: 28px; font-weight: 800; line-height: 1.1; }
+.deck-hero { border: 2px solid var(--accent); }
+.deck-hero .win-pct { font-size: 40px; color: var(--accent); }
+.chip.run { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 700; }
+.chip.lead { margin-left: auto; align-self: center; font-weight: 700; border-color: var(--accent); }
+.members { list-style: none; padding: 0; margin: 12px 0; display: flex; flex-direction: column; gap: 10px; }
+.member { display: flex; gap: 12px; align-items: center; }
+.member .thumbs { margin-top: 0; flex-shrink: 0; }
+.member-text { display: flex; flex-direction: column; min-width: 0; }
+.member-text strong { overflow-wrap: anywhere; }
+.deck:not(.deck-hero) .member .thumb { width: 32px; height: 32px; }
+.runners { margin-top: 24px; }
+/* Fixed photo column so names line up whether a combo has 2 or 5 parts. */
+.member .thumbs { width: 216px; flex-wrap: nowrap; }
+.deck:not(.deck-hero) .member .thumbs { width: 176px; }
+@media (max-width: 520px) {
+  .member .thumbs { width: 136px; flex-wrap: wrap; }
+  .deck:not(.deck-hero) .member .thumbs { width: 112px; }
+  .member .thumb, .deck:not(.deck-hero) .member .thumb { width: 24px; height: 24px; }
+}

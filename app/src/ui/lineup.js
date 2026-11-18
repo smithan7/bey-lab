@@ -1,6 +1,6 @@
 // Lineup tab: the best legal 3-bey deck. Ranking runs in a module worker; getLineup is shared with the Next tab.
 import { comboLabel, comboParts } from '../combo.js';
-import { h } from './pickers.js';
+import { h, comboThumbs } from './pickers.js';
 import { fmtEv, fmtPct } from './combos.js';
 
 function hashStr(s) {
@@ -144,7 +144,7 @@ function renderResult(ctx, el, result, state, parts) {
   else if (result.noLegal) el.append(h('p', { class: 'chip flag' }, 'No legal deck from your owned, tested combos yet.'));
 
   if (result.ranked.length) {
-    el.append(h('p', { class: 'muted' }, 'Best decks against all tested combos. Percentages are P(win the match) with 95% intervals.'));
+    el.append(h('p', { class: 'muted' }, 'Best decks against all tested combos. Win chance is P(win the match), with its 95% range.'));
     const top = result.ranked.slice(0, 5);
     const first = top[0];
     if (first.differs) {
@@ -155,17 +155,38 @@ function renderResult(ctx, el, result, state, parts) {
       if (second !== first) banner.append(line('First-to-7 best', second));
       el.append(banner);
     }
+    const ratingOf = new Map((result.ratings ?? []).map((x) => [x.comboId, x]));
+    const pct = (v) => `${Math.round(v * 100)}%`;
+    const range = (bt) => `${pct(bt.lo)}–${pct(bt.hi)}`;
     top.forEach((r, i) => {
-      const card = h('article', { class: 'report', 'data-rank': String(i + 1) });
-      card.append(h('h3', {}, `#${i + 1}`));
-      const list = h('ol', {});
-      for (const id of r.deck) list.append(h('li', {}, label(id)));
-      card.append(list);
-      for (const [name, key] of [['First-to-5', 'target5'], ['First-to-7', 'target7']]) {
-        const bt = r.best[key];
-        const leadText = bt.lead == null ? 'Any order' : `Lead with ${label(r.deck[bt.lead])}`;
-        card.append(h('p', {}, h('strong', {}, `${name}: ${pctText(bt)}`), ` — ${leadText}`));
-        if (bt.lead != null) card.append(h('small', { class: 'muted' }, `Random order: ${pctText(r.randomOrder[key])}`), h('br'));
+      const hero = i === 0;
+      const b5 = r.best.target5, b7 = r.best.target7;
+      const card = h('article', { class: `report deck${hero ? ' deck-hero' : ''}`, 'data-rank': String(i + 1) });
+      // Header: rank (and "Run this" for #1) on the left, first-to-5 win chance on the right.
+      const head = h('div', { class: 'deck-head' },
+        h('div', {}, h('h3', {}, `#${i + 1}`), hero ? h('span', { class: 'chip run' }, 'Run this') : ''),
+        h('div', { class: 'win' }, h('span', { class: 'win-pct' }, pct(b5.p)), h('span', { class: 'muted' }, `win chance · first to 5 · ${range(b5)}`)));
+      card.append(head);
+      // Members, lead first when one is recommended.
+      const order = b5.lead == null ? [0, 1, 2] : [b5.lead, ...[0, 1, 2].filter((k) => k !== b5.lead)];
+      const members = h('ul', { class: 'members' });
+      for (const k of order) {
+        const id = r.deck[k];
+        const rr = ratingOf.get(id);
+        const row = h('li', { class: 'member' }, comboThumbs(byId.get(id), partsById),
+          h('div', { class: 'member-text' },
+            h('strong', {}, label(id)),
+            h('span', { class: 'muted' }, [rr ? `Rating ${fmtEv(rr.r)}` : '', (r.memberEstimated?.[k] ?? 0) > 0.5 ? 'mostly estimated' : ''].filter(Boolean).join(' · '))));
+        if (b5.lead === k) row.append(h('span', { class: 'chip lead' }, 'Lead'));
+        members.append(row);
+      }
+      card.append(members);
+      const orderText = (bt) => (bt.lead == null ? 'any order' : `lead with ${label(r.deck[bt.lead])}`);
+      if (hero) {
+        card.append(h('p', {}, `First to 5: ${orderText(b5)}${b5.lead != null ? ` (random order ${pct(r.randomOrder.target5.p)})` : ''}.`));
+        card.append(h('p', {}, `First to 7: ${pct(b7.p)} [${range(b7)}], ${orderText(b7)}.`));
+      } else {
+        card.append(h('p', { class: 'muted' }, `First to 7: ${pct(b7.p)} · ${b5.lead == null ? 'Any order' : `Lead: ${label(r.deck[b5.lead])}`}`));
       }
       const testedPct = Math.round((1 - (r.estimatedShare ?? 0)) * 100);
       const est = (r.estimatedShare ?? 0) > 0.5;
@@ -177,6 +198,7 @@ function renderResult(ctx, el, result, state, parts) {
         card.append(h('p', { class: 'chip flag' }, `${label(r.deck[m])}: ${Math.round((1 - share) * 100)}% of its matchups tested — mostly estimated, test more to confirm`));
       });
       el.append(card);
+      if (hero && top.length > 1) el.append(h('h2', { class: 'runners' }, 'Runners-up'));
     });
   }
   if (result.ratings?.length || state.combos.length) leaderboard(el, result.ratings ?? [], state, parts, label);

@@ -1,6 +1,6 @@
 // Next tab: what to test next, from suggestTests over the shared lineup computation.
 import { comboLabel } from '../combo.js';
-import { suggestTests } from '../suggest.js';
+import { lookaheadDeck, suggestTests } from '../suggest.js';
 import { h, comboThumbs } from './pickers.js';
 import { toast } from './log.js';
 import { watchLineup } from './lineup.js';
@@ -31,6 +31,13 @@ export const tab = {
         return;
       }
       el.append(h('p', { class: 'muted' }, 'Suggested tests: new combos first, then the matchups most likely to change your best deck. Each is about 10 battles.'));
+      const ahead = lookaheadDeck(state, parts);
+      if (ahead && list.some((s) => s.kind === 'upset')) {
+        const names = ahead.map((id) => comboLabel(state.combos.find((c) => c.id === id), partsById)).join(' / ');
+        const top = result.ranked?.[0]?.deck;
+        const same = top && top.length === ahead.length && top.every((id) => ahead.includes(id));
+        el.append(h('p', { class: 'muted' }, `"Best deck" here means ${names}: your three highest-rated legal combos.${top && !same ? ' The Lineup tab\'s #1 differs on a close call, because it runs full match simulations.' : ''}`));
+      }
       list.forEach((s) => {
         const row = h('article', { class: 'report', 'data-kind': s.kind });
         row.append(h('div', { class: 'chips' }, h('span', { class: 'chip' }, KIND[s.kind] ?? s.kind)));
