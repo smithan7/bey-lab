@@ -6,8 +6,8 @@ import { normalizeCatalog, mergeParts } from '../src/catalog.js';
 import { comboId, comboLabel, isLegalDeck } from '../src/combo.js';
 import { makeRng } from '../src/rng.js';
 import {
-  candidateCombos, fieldCombos, fieldDecks, enumerateLegalDecks, missingPairings,
-  rankLineups, comboLeaderboard, decideDiffers, sampleFieldDecks, MAX_FIELD_DECKS, SCREEN_MATCHES, REFINE_OUTER, REFINE_INNER, TOP_N, LEAD_MIN_GAIN,
+  candidateCombos, opponentCombos, coverDecks, enumerateLegalDecks,
+  rankLineups, decideDiffers, MIN_OPP_DECKS, PREFILTER, OPP_SEED, SCREEN_MATCHES, REFINE_OUTER, REFINE_INNER, TOP_N, LEAD_MIN_GAIN,
 } from '../src/lineup.js';
 
 const catalog = normalizeCatalog(JSON.parse(readFileSync(new URL('../data/parts-catalog.json', import.meta.url), 'utf8')));
@@ -26,56 +26,47 @@ test('constants match the global constraints', () => {
   assert.deepEqual([SCREEN_MATCHES, REFINE_OUTER, REFINE_INNER, TOP_N, LEAD_MIN_GAIN], [1000, 200, 50, 5, 0.02]);
 });
 
-test('sampleFieldDecks: all decks up to MAX_FIELD_DECKS, a seeded sample beyond', () => {
-  assert.equal(MAX_FIELD_DECKS, 10);
-  const five = ['a', 'b', 'c', 'd', 'e'];
-  assert.deepEqual(sampleFieldDecks(five, makeRng(1)), fieldDecks(five));
-  const eight = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-  const all = fieldDecks(eight).map((d) => d.join());
-  const s1 = sampleFieldDecks(eight, makeRng(3));
-  assert.equal(s1.length, MAX_FIELD_DECKS);
-  assert.equal(new Set(s1.map((d) => d.join())).size, MAX_FIELD_DECKS);
-  for (const d of s1) assert.ok(all.includes(d.join()), d.join());
-  assert.deepEqual(sampleFieldDecks(eight, makeRng(3)), s1);
-  assert.notDeepEqual(sampleFieldDecks(eight, makeRng(4)), s1);
+test('coverDecks covers every id, has no duplicates and is deterministic', () => {
+  assert.deepEqual([MIN_OPP_DECKS, PREFILTER, OPP_SEED], [20, 60, 20261118]);
+  const ids = 'abcdefghij'.split('');
+  const d = coverDecks(ids, makeRng(1));
+  assert.equal(d.length, 20);
+  for (const id of ids) assert.ok(d.some((t) => t.includes(id)), id);
+  const keys = d.map((t) => [...t].sort().join());
+  assert.equal(new Set(keys).size, d.length);
+  for (const t of d) assert.equal(new Set(t).size, 3);
+  assert.deepEqual(coverDecks(ids, makeRng(1)), d);
+  const big = Array.from({ length: 80 }, (_, i) => `c${i}`);
+  const db = coverDecks(big, makeRng(2));
+  assert.ok(db.length >= 27);
+  for (const id of big) assert.ok(db.some((t) => t.includes(id)), id);
 });
 
-test('fieldDecks: one deck for 3, all 3-subsets for more, none for fewer', () => {
-  assert.deepEqual(fieldDecks(['a', 'b', 'c']), [['a', 'b', 'c']]);
-  assert.equal(fieldDecks(['a', 'b', 'c', 'd']).length, 4);
-  assert.equal(fieldDecks(['a', 'b', 'c', 'd', 'e']).length, 10);
-  assert.deepEqual(fieldDecks(['a', 'b']), []);
+test('coverDecks: 3 ids give one triple, 4 give all 4, fewer than 3 give none', () => {
+  assert.equal(coverDecks(['a', 'b', 'c'], makeRng(1)).length, 1);
+  assert.equal(coverDecks(['a', 'b', 'c', 'd'], makeRng(1)).length, 4);
+  assert.deepEqual(coverDecks(['a', 'b'], makeRng(1)), []);
 });
 
-test('fieldCombos returns only active field entries', () => {
-  const state = { field: [{ comboId: 'a', active: true }, { comboId: 'b', active: false }, { comboId: 'c', active: true }] };
-  assert.deepEqual(fieldCombos(state), ['a', 'c']);
+test('opponentCombos: every combo with a battle, mirrors ignored', () => {
+  const state = { combos: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }], battles: [{ left: 'a', right: 'b' }, { left: 'c', right: 'c' }] };
+  assert.deepEqual(opponentCombos(state), ['a', 'b']);
 });
 
-test('missingPairings excludes mirrors and lists each pairing once', () => {
-  const battles = [{ left: 'x', right: 'a', winner: 'left', points: 1 }];
-  const m = missingPairings(['a', 'b', 'x'], ['a', 'b'], battles);
-  // a-a and b-b are mirrors; a-b appears once; x-a has data
-  const keys = m.map((p) => [...p].sort().join('/')).sort();
-  assert.deepEqual(keys, ['a/b', 'b/x']);
-});
-
-test('seed: nothing ranked, blocked decks are legal and list baseline pairings', () => {
+test('seed: ranks decks with no field rules; ratings cover every tested combo', () => {
   const r = rankLineups(seed, seedParts, { rng: makeRng(7), ...FAST });
-  assert.equal(r.ranked.length, 0);
-  assert.equal(r.fieldLegal, false);
-  assert.equal(r.fieldTooSmall, false);
-  assert.ok(r.blocked.length > 0 && r.blocked.length <= 5);
-  const pb = [S('Pegasus Blast 2-60 Free Ball'), S('Pegasus Blast 2-60 Pop Out (unverified)')];
+  assert.equal(r.tooFew, false);
+  assert.equal(r.noLegal, false);
+  assert.ok(r.ranked.length > 0);
   const byId = new Map(seed.combos.map((c) => [c.id, c]));
-  for (const b of r.blocked) {
-    assert.ok(!(b.deck.includes(pb[0]) && b.deck.includes(pb[1])), 'blocked deck has both Pegasus Blast combos');
-    assert.ok(isLegalDeck(b.deck.map((id) => byId.get(id))));
-    assert.ok(b.missing.length > 0);
+  for (const d of r.ranked) {
+    assert.ok(isLegalDeck(d.deck.map((id) => byId.get(id))));
+    assert.ok(d.estimatedShare >= 0 && d.estimatedShare <= 1);
   }
-  for (let i = 1; i < r.blocked.length; i++) assert.ok(r.blocked[i - 1].missing.length <= r.blocked[i].missing.length);
-  const wr = S('Wizard Rod 2-60 Gear Ball'), cd = S('Cobalt Drake 1-60 Free Flat');
-  assert.ok(r.blocked.some((b) => b.missing.some(([a, c]) => (a === wr && c === cd) || (a === cd && c === wr))));
+  assert.equal(r.ratings.length, opponentCombos(seed).length);
+  for (let i = 1; i < r.ratings.length; i++) assert.ok(r.ratings[i - 1].r >= r.ratings[i].r);
+  // Baseline combos have never met each other, so decks containing two of them rest partly on estimates.
+  assert.ok(r.ranked.some((d) => d.estimatedShare > 0));
 });
 
 test('seed: candidates exclude nothing owned and tested; legal decks never pair both Pegasus Blasts', () => {
@@ -85,24 +76,6 @@ test('seed: candidates exclude nothing owned and tested; legal decks never pair 
   const decks = enumerateLegalDecks(cands, byId);
   assert.ok(decks.length > 0);
   for (const d of decks) assert.ok(isLegalDeck(d.map((id) => byId.get(id))));
-});
-
-test('seed: leaderboard row for Red Hulk 1-60 Low Rush', () => {
-  const lb = comboLeaderboard(seed, { rng: makeRng(3) });
-  const row = lb.find((r) => r.comboId === S('Red Hulk 1-60 Low Rush'));
-  assert.ok(row);
-  assert.ok(Math.abs(row.ev - -0.233) < 0.001, `ev ${row.ev}`);
-  assert.equal(row.tested, 3);
-  assert.equal(row.of, 3);
-  assert.equal(row.n, 30);
-  assert.ok(row.evCI[0] < row.ev && row.ev < row.evCI[1]);
-  for (let i = 1; i < lb.length; i++) assert.ok(lb[i - 1].ev >= lb[i].ev);
-  // Baseline combos have no battles against other field combos yet, so they have no row.
-  assert.equal(lb.find((r) => r.comboId === S('Wizard Rod 2-60 Gear Ball')), undefined);
-  const po = lb.find((r) => r.comboId === S('Pegasus Blast 2-60 Pop Out (unverified)'));
-  assert.deepEqual([po.tested, po.of, po.n], [2, 3, 20]);
-  const rg = lb.find((r) => r.comboId === S('Rocket Griffon Hexa'));
-  assert.deepEqual([rg.tested, rg.of, rg.n], [1, 3, 10]);
 });
 
 // ---- synthetic states ----
@@ -153,7 +126,6 @@ test('synthetic: combo that always wins +3 tops every ranking; ranked decks are 
   const parts = mergeParts(catalog, [], state.overrides);
   assert.equal(candidateCombos(state, parts).length, 5);
   const r = rankLineups(state, parts, { rng: makeRng(5), ...FAST });
-  assert.equal(r.fieldLegal, true);
   assert.ok(r.ranked.length > 0 && r.ranked.length <= TOP_N);
   const byId = new Map(state.combos.map((c) => [c.id, c]));
   for (const d of r.ranked) {
@@ -170,7 +142,6 @@ test('synthetic: combo that always wins +3 tops every ranking; ranked decks are 
   }
   for (let i = 1; i < r.ranked.length; i++) assert.ok(r.ranked[i - 1].best.target5.p >= r.ranked[i].best.target5.p);
   assert.ok(r.ranked[0].deck.includes(X.id));
-  assert.deepEqual(r.blocked, []);
 });
 
 test('smoke (sim-driven): Xtreme vs Spin decks; differs agrees across entries', () => {
@@ -280,9 +251,105 @@ test('candidateCombos excludes an owned combo with zero battles', () => {
   assert.equal(cands.length, 6);
 });
 
-test('fieldTooSmall when fewer than 3 active field combos', () => {
-  const state = { ...seed, field: seed.field.map((f, i) => ({ ...f, active: i > 0 })) };
-  const r = rankLineups(state, seedParts, { rng: makeRng(2), ...FAST });
-  assert.equal(r.fieldTooSmall, true);
-  assert.deepEqual(r.ranked, []);
+test('tooFew and noLegal flags', () => {
+  const A = mk('dran-dagger', '3-80', 'low-flat'), B = mk('sphinx-cowl', '5-60', 'high-taper'), C = mk('dran-dagger', '5-80', 'gear-flat');
+  const rng = makeRng(3);
+  const two = { combos: [A, B], battles: battlesFor(A, B, 4, coin, rng), field: [] };
+  const p2 = mergeParts(catalog, [], ownAll([A, B]));
+  const r2 = rankLineups(two, p2, { rng: makeRng(1), ...FAST });
+  assert.equal(r2.tooFew, true);
+  assert.deepEqual(r2.ranked, []);
+  // A and C share a blade, so no legal deck of three exists.
+  const three = { combos: [A, B, C], battles: [...battlesFor(A, B, 4, coin, rng), ...battlesFor(C, B, 4, coin, rng)], field: [] };
+  const r3 = rankLineups(three, mergeParts(catalog, [], ownAll([A, B, C])), { rng: makeRng(1), ...FAST });
+  assert.equal(r3.tooFew, false);
+  assert.equal(r3.noLegal, true);
+  assert.deepEqual(r3.ranked, []);
+});
+
+// ---- partial data ----
+
+// Pool of 8 owned combos with distinct parts; P[0] is clearly the strongest.
+function partialPool() {
+  const names = [['wizard-arrow', '3-60', 'flat'], ['leon-claw', '4-60', 'ball'], ['hells-chain', '4-80', 'high-needle'],
+    ['sphinx-cowl', '5-60', 'high-taper'], ['dran-buster', '5-80', 'gear-flat'], ['tyranno-beat', '9-60', 'gear-ball'],
+    ['knight-shield', '3-80', 'needle'], ['shark-edge', '1-60', 'low-flat']];
+  const P = names.map((n) => mk(...n));
+  const rng = makeRng(41);
+  const battles = [];
+  for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) {
+    const gen = i === 0 ? () => (rng() < 0.75 ? 2 : -1) : coin;
+    battles.push(...battlesFor(P[i], P[j], 8, gen, rng));
+  }
+  return { P, battles };
+}
+
+test('a partly tested strong combo reaches the #1 deck', () => {
+  const { P, battles } = partialPool();
+  const X = mk('cobalt-dragoon', '2-70', 'rush');
+  const state = { combos: [...P, X], battles: [...battles, ...battlesFor(X, P[0], 10, () => 2, makeRng(1))], field: [] };
+  const r = rankLineups(state, mergeParts(catalog, [], ownAll([...P, X])), { rng: makeRng(5), ...FAST });
+  assert.ok(r.ranked[0].deck.includes(X.id), 'X should be in the best deck');
+  assert.ok(r.ranked[0].estimatedShare > 0);
+});
+
+test('two lucky battles do not out-rate an established top combo, and leave a wide range', () => {
+  const { P, battles } = partialPool();
+  const X = mk('cobalt-dragoon', '2-70', 'rush');
+  const state = { combos: [...P, X], battles: [...battles, ...battlesFor(X, P[7], 2, () => 3, makeRng(1))], field: [] };
+  const r = rankLineups(state, mergeParts(catalog, [], ownAll([...P, X])), { rng: makeRng(5), ...FAST });
+  const row = (id) => r.ratings.find((x) => x.comboId === id);
+  assert.equal(r.ratings[0].comboId, P[0].id);
+  assert.ok(row(X.id).hi - row(X.id).lo > 2 * (row(P[0].id).hi - row(P[0].id).lo) - 0.2);
+});
+
+test('estimatedShare counts untested non-mirror pairings only', () => {
+  // 4 combos; only A-B and C-D tested. Opponent triples = all 4 triples of {A,B,C,D}.
+  const A = mk('wizard-arrow', '3-60', 'flat'), B = mk('leon-claw', '4-60', 'ball'), C = mk('hells-chain', '4-80', 'high-needle'), D = mk('sphinx-cowl', '5-60', 'high-taper');
+  const rng = makeRng(9);
+  const state = { combos: [A, B, C, D], battles: [...battlesFor(A, B, 6, coin, rng), ...battlesFor(C, D, 6, coin, rng)], field: [] };
+  const r = rankLineups(state, mergeParts(catalog, [], ownAll([A, B, C, D])), { rng: makeRng(2), ...FAST });
+  const deck = r.ranked.find((d) => ['A', 'B', 'C'].every((_, i) => d.deck.includes([A, B, C][i].id)));
+  assert.ok(deck, 'deck A/B/C ranked');
+  // Count by hand over the 4 opponent triples (each has 3 combos): per member, non-mirror cells and untested ones.
+  const tested = new Set([[A.id, B.id].sort().join(), [C.id, D.id].sort().join()]);
+  let cells = 0, est = 0;
+  for (const t of coverDecks([A.id, B.id, C.id, D.id], makeRng(OPP_SEED))) for (const a of deck.deck) for (const b of t) {
+    if (a === b) continue;
+    cells++;
+    if (!tested.has([a, b].sort().join())) est++;
+  }
+  assert.ok(Math.abs(deck.estimatedShare - est / cells) < 1e-12);
+  for (const d of r.ranked) for (const t of ['target5', 'target7']) assert.ok(Number.isFinite(d.best[t].p));
+});
+
+test('ranking is deterministic for a seed', () => {
+  const { P, battles } = partialPool();
+  const state = { combos: P, battles, field: [] };
+  const parts = mergeParts(catalog, [], ownAll(P));
+  const a = rankLineups(state, parts, { rng: makeRng(5), ...FAST });
+  const b = rankLineups(state, parts, { rng: makeRng(5), ...FAST });
+  assert.deepEqual(a, b);
+});
+
+test('performance: 80 combos and 600 battles rank in time with default sizes', () => {
+  const names = ['wizard-arrow', 'leon-claw', 'hells-chain', 'sphinx-cowl', 'dran-buster', 'tyranno-beat', 'knight-shield', 'shark-edge', 'cobalt-dragoon', 'dran-dagger'];
+  const rats = ['1-60', '2-60', '3-60', '4-60', '5-60', '3-80', '4-80', '5-80'];
+  const bits = ['flat', 'ball', 'needle', 'high-needle', 'gear-flat', 'gear-ball', 'low-flat', 'rush'];
+  const C = [];
+  names.forEach((b, i) => rats.forEach((r, j) => C.push(mk(b, r, bits[(i + j) % bits.length]))));
+  const rng = makeRng(77);
+  const battles = [];
+  for (let i = 0; i < 600; i++) {
+    const a = C[Math.floor(rng() * C.length)], b = C[Math.floor(rng() * C.length)];
+    if (a.id !== b.id) battles.push(...battlesFor(a, b, 1, coin, rng));
+  }
+  // Own a spread of bits so legal decks exist: vary the bit per blade.
+  const owned = ownAll(C);
+  const state = { combos: C, battles, field: [] };
+  const t0 = Date.now();
+  const res = rankLineups(state, mergeParts(catalog, [], owned), { rng: makeRng(1) });
+  const ms = Date.now() - t0;
+  assert.equal(res.ranked.length, TOP_N);
+  assert.ok(ms < 8000, `${ms} ms`);
 });

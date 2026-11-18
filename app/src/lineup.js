@@ -1,19 +1,22 @@
-// Lineup ranking and per-combo leaderboard. Pure; runs in Node and the browser.
+// Lineup ranking against every tested combo. Pure; runs in Node and the browser.
 import { comboParts, isLegalDeck } from './combo.js';
-import { pairingDistribution, pairingScores } from './matchups.js';
+import { ratedDistribution } from './matchups.js';
 import { matchWinPoint, matchWinPosterior } from './sim.js';
-import { matchupStats } from './stats.js';
+import { fitRatings, ratingsLeaderboard } from './ratings.js';
 import { makeRng, shuffle } from './rng.js';
 
 export const SCREEN_MATCHES = 1000;
 export const REFINE_OUTER = 200;
 export const REFINE_INNER = 50;
 export const TOP_N = 5;
-// Cap on field decks simulated per candidate deck, so ranking stays fast as the field grows.
-export const MAX_FIELD_DECKS = 10;
+// Opponent triples per ranking: every tested combo at least once, topped up to this many.
+export const MIN_OPP_DECKS = 20;
+// Legal decks kept (by summed rating) for the full match simulation.
+export const PREFILTER = 60;
+// Fixed seed for the opponent sample, so logging a battle doesn't reshuffle opponents.
+export const OPP_SEED = 20261118;
 // A fixed lead is only recommended if it beats random order by at least this much.
 export const LEAD_MIN_GAIN = 0.02;
-const BLOCKED_N = 5;
 const LEADS = [0, 1, 2];
 const TARGETS = { target5: 5, target7: 7 };
 
@@ -27,30 +30,51 @@ function triples(ids) {
   return out;
 }
 
+const played = (state) => {
+  const s = new Set();
+  for (const b of state.battles ?? []) if (b.left !== b.right) { s.add(b.left); s.add(b.right); }
+  return s;
+};
+
 // Combos whose physical parts are all owned and that have at least one battle.
 export function candidateCombos(state, parts) {
   const owned = new Set(parts.filter((p) => p.owned).map((p) => p.id));
-  const tested = new Set();
-  for (const b of state.battles ?? []) { tested.add(b.left); tested.add(b.right); }
+  const tested = played(state);
   return (state.combos ?? [])
     .filter((c) => tested.has(c.id) && comboParts(c).every((p) => owned.has(p)))
     .map((c) => c.id);
 }
 
-export function fieldCombos(state) {
-  return (state.field ?? []).filter((f) => f.active).map((f) => f.comboId);
+// "Everyone": every combo with at least one battle, owned or not, in state.combos order.
+export function opponentCombos(state) {
+  const tested = played(state);
+  return (state.combos ?? []).filter((c) => tested.has(c.id)).map((c) => c.id);
 }
 
-// Every 3-subset of the field, legal or not. Fewer than 3 combos gives [].
-export function fieldDecks(fieldIds) {
-  return triples(fieldIds);
-}
-
-// All field decks when there are at most MAX_FIELD_DECKS, else a seeded sample of that many
-// (the order of the sample comes from rng, so it is deterministic for a given seed).
-export function sampleFieldDecks(fieldIds, rng) {
-  const all = triples(fieldIds);
-  return all.length <= MAX_FIELD_DECKS ? all : shuffle(rng, all).slice(0, MAX_FIELD_DECKS);
+// Opponent triples covering every id at least once (disjoint chunks of a shuffle, the last one
+// topped up from the head), then more shuffled chunks until `min` or every 3-subset is used.
+export function coverDecks(ids, rng, min = MIN_OPP_DECKS) {
+  if (ids.length < 3) return [];
+  const total = (ids.length * (ids.length - 1) * (ids.length - 2)) / 6;
+  const want = Math.min(total, Math.max(min, Math.ceil(ids.length / 3)));
+  const seen = new Set();
+  const out = [];
+  const push = (t) => {
+    const k = [...t].sort().join('\n');
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(t);
+  };
+  for (let round = 0; out.length < want && round < 200; round++) {
+    const order = shuffle(rng, ids);
+    for (let i = 0; i < order.length && out.length < want; i += 3) {
+      const t = order.slice(i, i + 3);
+      for (let j = 0; t.length < 3; j++) if (!t.includes(order[j])) t.push(order[j]);
+      push(t);
+    }
+  }
+  if (out.length < want) for (const t of triples(ids)) { if (out.length >= want) break; push(t); }
+  return out;
 }
 
 export function enumerateLegalDecks(candidateIds, combosById) {
@@ -58,43 +82,7 @@ export function enumerateLegalDecks(candidateIds, combosById) {
   return triples(candidateIds).filter((d) => isLegalDeck(d.map(get)));
 }
 
-// Pairings (member vs field combo) with no data. Mirrors never count; each unordered pairing appears once.
-export function missingPairings(deck, fieldIds, battles) {
-  const seen = new Set();
-  const out = [];
-  for (const a of deck) for (const b of fieldIds) {
-    if (a === b) continue;
-    const key = a < b ? `${a}\n${b}` : `${b}\n${a}`;
-    if (seen.has(key) || pairingDistribution(battles, a, b)) continue;
-    seen.add(key);
-    out.push([a, b]);
-  }
-  return out;
-}
-
-// Per-combo "average EV vs field": each combo's battles against active field combos
-// (excluding itself) pooled through matchupStats. Combos with no such battles are left out.
-export function comboLeaderboard(state, { rng = makeRng(Date.now()), draws, raceSims } = {}) {
-  const field = fieldCombos(state);
-  const battles = state.battles ?? [];
-  const rows = [];
-  for (const c of state.combos ?? []) {
-    const opps = field.filter((f) => f !== c.id);
-    let scores = [];
-    let tested = 0;
-    for (const f of opps) {
-      const s = pairingScores(battles, c.id, f);
-      if (s.length) tested++;
-      scores = scores.concat(s);
-    }
-    if (!scores.length) continue;
-    const st = matchupStats(scores, { rng, draws, raceSims });
-    rows.push({ comboId: c.id, ev: st.ev, evCI: st.evCI, pEvNeg: st.pEvNeg, tested, of: opps.length, n: st.n });
-  }
-  return rows.sort((a, b) => b.ev - a.ev);
-}
-
-const matrix = (battles, deck, fd) => deck.map((a) => fd.map((b) => pairingDistribution(battles, a, b)));
+const matrix = (battles, ratings, deck, fd) => deck.map((a) => fd.map((b) => ratedDistribution(battles, ratings, a, b)));
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 // Posterior P(match win) averaged across field decks: p, lo and hi are each the mean
@@ -133,47 +121,55 @@ export function decideDiffers(ranked, { outer = REFINE_OUTER } = {}) {
 }
 
 /**
- * Ranks legal decks of owned, tested combos against the active field.
- * Field decks: every 3-subset of the field, sampled down to MAX_FIELD_DECKS (seeded by rng).
- * ranked: the TOP_N decks by screened first-to-5 P(win), refined, sorted by refined
- *   best.target5.p descending. `lead` is an index into `deck`, or null when no lead beats
- *   random order by LEAD_MIN_GAIN (then best equals randomOrder). `differs` (same on
- *   every entry) comes from decideDiffers.
- * blocked: legal decks with missing pairings, fewest missing first.
+ * Ranks legal decks of owned, tested combos against every tested combo.
+ * Opponents: coverDecks(opponentCombos) with a fixed seed. Pairings without data are estimated
+ * from EV ratings (ratedDistribution). Legal decks are prefiltered to the PREFILTER highest
+ * summed ratings, screened by first-to-5 P(win) under their best lead, and the TOP_N are refined.
+ * ranked: sorted by refined best.target5.p (best estimate). estimatedShare: fraction of the
+ *   deck's non-mirror pairings in the opponent sample that have no battles.
+ * ratings: leaderboard rows (ratingsLeaderboard). tooFew: fewer than 3 tested combos.
+ * noLegal: no legal deck of owned, tested combos.
  */
 export function rankLineups(state, parts, {
   rng = makeRng(Date.now()),
   screenMatches = SCREEN_MATCHES, refineOuter = REFINE_OUTER, refineInner = REFINE_INNER, topN = TOP_N,
-  leaderboardOptions = { draws: 200, raceSims: 200 },
+  prefilter = PREFILTER, minOppDecks = MIN_OPP_DECKS,
 } = {}) {
   const combosById = byIdMap(state.combos);
   const battles = state.battles ?? [];
-  const field = fieldCombos(state);
-  const fds = sampleFieldDecks(field, rng);
-  const fieldLegal = isLegalDeck(field.map((id) => combosById.get(id)).filter(Boolean));
+  const fitted = fitRatings(battles);
+  const ratings = ratingsLeaderboard(state, fitted);
+  const opponents = opponentCombos(state);
+  const tooFew = opponents.length < 3;
+  const fds = tooFew ? [] : coverDecks(opponents, makeRng(OPP_SEED), minOppDecks);
 
-  const legal = enumerateLegalDecks(candidateCombos(state, parts), combosById);
-  const rankable = [];
-  const notRankable = [];
-  for (const deck of legal) {
-    const missing = missingPairings(deck, field, battles);
-    (missing.length ? notRankable : rankable).push({ deck, missing });
-  }
+  const rOf = (id) => fitted.get(id)?.r ?? 0;
+  const legal = enumerateLegalDecks(candidateCombos(state, parts), combosById)
+    .map((deck) => ({ deck, score: deck.reduce((s, id) => s + rOf(id), 0) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, prefilter)
+    .map((x) => x.deck);
+  const noLegal = !tooFew && legal.length === 0;
 
   let ranked = [];
-  if (fds.length) {
-    // Screening: deck quality under its best lead at first to 5.
-    const screened = rankable.map(({ deck }) => {
-      const mats = fds.map((fd) => matrix(battles, deck, fd));
+  if (fds.length && legal.length) {
+    const screened = legal.map((deck) => {
+      const mats = fds.map((fd) => matrix(battles, fitted, deck, fd));
       let p5 = -Infinity;
       for (const lead of LEADS) {
         p5 = Math.max(p5, mean(mats.map((m) => matchWinPoint(m, 5, { rng, matches: screenMatches, lead }))));
       }
-      return { deck, mats, p5 };
+      let cells = 0, est = 0;
+      deck.forEach((a, i) => fds.forEach((fd, j) => fd.forEach((b, k) => {
+        if (a === b) return;
+        cells++;
+        if (mats[j][i][k].estimated) est++;
+      })));
+      return { deck, mats, p5, estimatedShare: cells ? est / cells : 0 };
     });
     screened.sort((a, b) => b.p5 - a.p5);
-    ranked = screened.slice(0, topN).map(({ deck, mats }) => {
-      const out = { deck, best: {}, randomOrder: {} };
+    ranked = screened.slice(0, topN).map(({ deck, mats, estimatedShare }) => {
+      const out = { deck, best: {}, randomOrder: {}, estimatedShare };
       const seed = Math.floor(rng() * 4294967296);
       for (const [t, target] of Object.entries(TARGETS)) {
         const random = refine(mats, target, null, rng, refineOuter, refineInner);
@@ -188,16 +184,5 @@ export function rankLineups(state, parts, {
     for (const r of ranked) r.differs = differs;
   }
 
-  let blocked = [];
-  if (notRankable.length) {
-    const lb = new Map(comboLeaderboard(state, { rng, ...leaderboardOptions }).map((r) => [r.comboId, r.ev]));
-    const score = (deck) => mean(deck.map((id) => (lb.has(id) ? lb.get(id) : -Infinity)));
-    blocked = notRankable
-      .map((b) => ({ ...b, ev: score(b.deck) }))
-      .sort((a, b) => a.missing.length - b.missing.length || b.ev - a.ev)
-      .slice(0, BLOCKED_N)
-      .map(({ deck, missing }) => ({ deck, missing }));
-  }
-
-  return { ranked, blocked, fieldLegal, fieldTooSmall: field.length < 3 };
+  return { ranked, ratings, tooFew, noLegal };
 }
