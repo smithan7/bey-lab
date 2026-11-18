@@ -1,26 +1,90 @@
-// Next-test suggestions. Pure: reads the lineup result and the data, runs no simulation.
+// Next-test suggestions. Pure: reads the lineup result and the data, runs no match simulation.
 import { comboId, comboParts, comboLabel, validateCombo } from './combo.js';
 import { comboFlags, finishBreakdown, pairingScores } from './matchups.js';
-import { matchupStats } from './stats.js';
-import { ratingsLeaderboard } from './ratings.js';
-import { candidateCombos, opponentCombos } from './lineup.js';
+import { fitModel, ratingsLeaderboard } from './ratings.js';
+import { candidateCombos, enumerateLegalDecks, opponentCombos } from './lineup.js';
 
 export const MAX_SUGGESTIONS = 8;
 export const MAX_SCREEN = 3;
-export const UNDER_TESTED = 5;
-export const NARROW_WIDTH = 1.5;
-export const NARROW_MAX_N = 30;
-const BATTLES = 10;
+export const MAX_FIX = 2;
+// Battles per suggested test, and the look-ahead's batch size.
+export const BATCH = 10;
+// Upsets below this chance of changing the best deck aren't shown.
+export const UPSET_MIN = 0.02;
+// Legal decks (highest summed rating first) the look-ahead compares.
+export const LOOKAHEAD_DECKS = 200;
 
 const withId = (c) => ({ ...c, id: comboId(c) });
 const fmt = (v) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}`;
 
+// Standard normal CDF (Abramowitz–Stegun 7.1.26 erf, |error| < 1.5e-7).
+function phi(z) {
+  if (z === Infinity) return 1;
+  if (z === -Infinity) return 0;
+  const x = Math.abs(z) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * x);
+  const erf = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return z >= 0 ? (1 + erf) / 2 : (1 - erf) / 2;
+}
+
+// Ratings (uncentred, model order) after n battles of a vs b averaging sbar: a rank-one update
+// of the ridge fit, r' = r + n/(1 + n·q) · u · (sbar − μ), with u = A⁻¹(e_a − e_b), q = u_a − u_b.
+export function ratingShift(model, a, b, n, sbar) {
+  const i = model.idx.get(a), j = model.idx.get(b);
+  const u = model.Ainv[i].map((x, k) => x - model.Ainv[j][k]);
+  const q = u[i] - u[j];
+  const mu = model.r[i] - model.r[j];
+  const g = (n / (1 + n * q)) * (sbar - mu);
+  return model.r.map((x, k) => x + g * u[k]);
+}
+
+/**
+ * For every runnable matchup (both combos rated and fully owned, no shared parts): the chance
+ * that n more battles change the best deck (the legal three with the highest summed rating).
+ * The batch mean is s̄ ~ N(μ, σ²(1/n + q)), and every deck's summed rating moves linearly in that
+ * one normal variable, so the chance is exact: Φ(z_lo) + 1 − Φ(z_hi).
+ * Returns [{ a, b, p }], highest p first.
+ */
+export function upsetChances(state, parts, { model = fitModel(state.battles), n = BATCH, maxDecks = LOOKAHEAD_DECKS } = {}) {
+  if (!model) return [];
+  const combosById = new Map((state.combos ?? []).map((c) => [c.id, c]));
+  const cands = candidateCombos(state, parts).filter((id) => model.idx.has(id));
+  const rOf = (id) => model.r[model.idx.get(id)];
+  const decks = enumerateLegalDecks(cands, combosById)
+    .map((d) => ({ d, s: d.reduce((t, id) => t + rOf(id), 0) }))
+    .sort((x, y) => y.s - x.s)
+    .slice(0, maxDecks);
+  if (decks.length < 2) return [];
+  const best = decks[0];
+  const out = [];
+  for (let x = 0; x < cands.length; x++) for (let y = x + 1; y < cands.length; y++) {
+    const a = cands[x], b = cands[y];
+    const pa = new Set(comboParts(combosById.get(a)));
+    if (comboParts(combosById.get(b)).some((p) => pa.has(p))) continue;
+    const i = model.idx.get(a), j = model.idx.get(b);
+    const u = model.Ainv[i].map((v, k) => v - model.Ainv[j][k]);
+    const q = u[i] - u[j];
+    // Shift of rating k per unit z: kz · u_k.
+    const kz = (n / (1 + n * q)) * Math.sqrt(model.sigma2 * (1 / n + q));
+    const U = (d) => d.reduce((t, id) => t + u[model.idx.get(id)], 0);
+    const uBest = U(best.d);
+    let zlo = -Infinity, zhi = Infinity;
+    for (let k = 1; k < decks.length; k++) {
+      const gap = best.s - decks[k].s; // ≥ 0
+      const slope = kz * (U(decks[k].d) - uBest);
+      if (slope > 1e-12) zhi = Math.min(zhi, gap / slope);
+      else if (slope < -1e-12) zlo = Math.max(zlo, gap / slope);
+    }
+    out.push({ a, b, p: phi(zlo) + 1 - phi(zhi) });
+  }
+  return out.sort((x, y) => y.p - x.p);
+}
+
 /**
  * Returns at most MAX_SUGGESTIONS of {kind, left, right, battles: 10, reason, replaces}, in kind
- * order: screen (untested owned combos, newest first, at most MAX_SCREEN), contender (combos whose
- * rating range reaches the #1 deck), topcheck (#1 deck members thinly tested against strong
- * opponents), fix (burst/KO part swaps for #1 members and contenders), narrow (#1 deck pairings
- * still uncertain). Combos rated entirely below the #1 deck get no suggestions of their own.
+ * order: screen (untested owned combos, newest first, at most MAX_SCREEN), upset (runnable
+ * matchups by chance of changing the best deck, at least UPSET_MIN), fix (burst/KO part swaps
+ * for #1 deck members, at most MAX_FIX). Never pairs combos that share a part.
  */
 export function suggestTests(state, parts, lineupResult) {
   const battles = state.battles ?? [];
@@ -48,7 +112,7 @@ export function suggestTests(state, parts, lineupResult) {
     const rp = new Set(comboParts(right));
     if (comboParts(left).some((p) => rp.has(p))) return false;
     seen.add(key(left.id, right.id));
-    out.push({ kind, left, right, battles: BATTLES, reason, replaces });
+    out.push({ kind, left, right, battles: BATCH, reason, replaces });
     return true;
   }
   const addPair = (kind, a, b, reason) => add(kind, combosById.get(a), combosById.get(b), reason);
@@ -72,37 +136,7 @@ export function suggestTests(state, parts, lineupResult) {
     if (opp && addPair('screen', c.id, opp, `${label(c)} hasn't been tested yet — start with the strongest combo it can face.`)) screens++;
   }
 
-  // 2. Contender: tested owned combos outside the #1 deck whose range reaches its weakest member.
-  const threshold = top.length ? Math.min(...top.map(rOf)) : -Infinity;
-  const contenders = candidates
-    .filter((c) => !top.includes(c) && rating.has(c) && rating.get(c).hi >= threshold)
-    .sort((a, b) => rating.get(b).hi - rating.get(a).hi);
-  for (const c of contenders) {
-    const row = rating.get(c);
-    // Prefer opponents it can be battled against without two copies of a part.
-    // Opponents it can be battled against without two copies of a part.
-    const unfaced = opponents.find((o) => o !== c && nBetween(c, o) === 0 && !sharesParts(c, o));
-    if (unfaced) {
-      addPair('contender', c, unfaced, `${label(combosById.get(c))} could make the best deck (rating ${fmt(row.r)}, up to ${fmt(row.hi)}) but hasn't faced ${label(combosById.get(unfaced))}.`);
-    } else {
-      const least = opponents.filter((o) => o !== c && !sharesParts(c, o)).sort((a, b) => nBetween(c, a) - nBetween(c, b) || rOf(b) - rOf(a))[0];
-      if (least) addPair('contender', c, least, `${label(combosById.get(c))} could make the best deck (rating ${fmt(row.r)}, up to ${fmt(row.hi)}) — more battles against ${label(combosById.get(least))} will settle it.`);
-    }
-  }
-
-  // 3. Top-deck check: #1 deck members with few battles against the strongest opponents.
-  const checks = [];
-  for (const a of top) for (const o of opponents) {
-    if (o === a) continue;
-    const n = nBetween(a, o);
-    if (n < UNDER_TESTED && !sharesParts(a, o)) checks.push({ a, o, n });
-  }
-  checks.sort((x, y) => rOf(y.o) - rOf(x.o));
-  for (const { a, o, n } of checks) {
-    addPair('topcheck', a, o, `${label(combosById.get(a))} is in the best deck but has ${n === 0 ? 'no battles' : `only ${n} battle${n === 1 ? '' : 's'}`} against ${label(combosById.get(o))} (rated ${fmt(rOf(o))}).`);
-  }
-
-  // 4. Fix: burst-risk / ko-risk part swaps, only for #1 deck members and contenders.
+  // 2. Fix (added after the upsets): burst-risk / ko-risk part swaps for #1 deck members, at most MAX_FIX.
   const ownedOf = (kind) => owned.filter((p) => p.kind === kind);
   const refDeck = top;
   const field = opponents;
@@ -155,7 +189,7 @@ export function suggestTests(state, parts, lineupResult) {
 
   const fixes = [];
   for (const combo of state.combos ?? []) {
-    if (!top.includes(combo.id) && !contenders.includes(combo.id)) continue;
+    if (!top.includes(combo.id)) continue;
     const br = finishBreakdown(battles, combo.id);
     const flags = comboFlags(br);
     const burst = flags.includes('burst-risk');
@@ -170,24 +204,18 @@ export function suggestTests(state, parts, lineupResult) {
     fixes.push({ left: swap.c, right, reason: `${label(combo)} ${text} — test a different ${swap.what}.`, replaces: combo.id });
   }
 
-  for (const f of fixes) add('fix', f.left, f.right, f.reason, f.replaces);
-
-  // 5. Narrow: #1 deck pairings whose EV interval is still too wide.
-  if (ranked.length) {
-    for (const a of ranked[0].deck) {
-      for (const f of opponents) {
-        if (a === f) continue;
-        const scores = pairingScores(battles, a, f);
-        if (scores.length === 0 || scores.length >= NARROW_MAX_N) continue;
-        const { evCI } = matchupStats(scores, { draws: 0, raceSims: 0 });
-        // A single battle gives no interval at all, which counts as narrow.
-        if (scores.length < 2 || !evCI || evCI[1] - evCI[0] > NARROW_WIDTH) {
-          const [ca, cf] = [combosById.get(a), combosById.get(f)];
-          if (ca && cf) add('narrow', ca, cf, `${label(ca)} vs ${label(cf)} is still uncertain after ${scores.length} battles.`);
-        }
-      }
-    }
+  // 3. Upset: the matchups most likely to change the best deck. Room is kept for the fixes there are.
+  const upsetRoom = () => MAX_SUGGESTIONS - out.length - Math.min(MAX_FIX, fixes.length);
+  for (const { a, b, p } of upsetChances(state, parts)) {
+    if (p < UPSET_MIN || upsetRoom() <= 0) break;
+    const ra = rating.get(a), rb = rating.get(b);
+    const n = nBetween(a, b);
+    const desc = (id, r) => `${label(combosById.get(id))} is rated ${fmt(r.r)} [${fmt(r.lo)}, ${fmt(r.hi)}]`;
+    addPair('upset', a, b, `${Math.round(p * 100)}% chance this changes your best deck. ${desc(a, ra)}; ${desc(b, rb)}; ${n ? `${n} battle${n === 1 ? '' : 's'} between them so far` : 'they haven\'t met yet'}.`);
   }
+
+  let fixCount = 0;
+  for (const f of fixes) if (fixCount < MAX_FIX && add('fix', f.left, f.right, f.reason, f.replaces)) fixCount++;
 
   return out.slice(0, MAX_SUGGESTIONS);
 }
