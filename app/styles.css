@@ -4,12 +4,21 @@
   --danger: #c62828; --warn-bg: #b71c1c; --warn-text: #ffffff;
   --tab-h: 64px;
 }
+:root { color-scheme: light; }
+/* Dark: when the device is dark (unless Settings says Light), or when Settings says Dark. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #0f1626; --surface: #1a2540; --text: #e8ecf6; --muted: #9aa6c4;
     --border: #2e3b5e; --accent: #6b93ff; --accent-text: #0b1226;
     --danger: #ff6b6b; --warn-bg: #8e1b1b;
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1626; --surface: #1a2540; --text: #e8ecf6; --muted: #9aa6c4;
+  --border: #2e3b5e; --accent: #6b93ff; --accent-text: #0b1226;
+  --danger: #ff6b6b; --warn-bg: #8e1b1b;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }

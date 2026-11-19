@@ -1,5 +1,6 @@
 import { ImportError } from '../store.js';
 import { buildSeed } from '../seed.js';
+import { THEMES, THEME_LABEL, loadTheme, applyTheme } from '../theme.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -52,6 +53,7 @@ export async function openSettings(ctx) {
       title: 'Settings',
       body: 'Every change is saved on this iPad as you go. Export a backup now and then.',
       actions: [
+        { label: `Appearance: ${THEME_LABEL[loadTheme()]}` },
         { label: 'Export data' },
         { label: 'Export with photos' },
         { label: 'Import data…' },
@@ -59,7 +61,15 @@ export async function openSettings(ctx) {
         { label: 'Close', kind: 'primary' },
       ],
     });
-    if (choice === 'Export data' || choice === 'Export with photos') {
+    if (choice?.startsWith('Appearance')) {
+      const pick = await ctx.showDialog({
+        title: 'Appearance',
+        body: 'Match device follows the iPad\'s light or dark setting.',
+        actions: THEMES.map((t) => ({ label: THEME_LABEL[t], kind: t === loadTheme() ? 'primary' : undefined })),
+      });
+      const t = THEMES.find((x) => THEME_LABEL[x] === pick);
+      if (t) applyTheme(t);
+    } else if (choice === 'Export data' || choice === 'Export with photos') {
       try {
         const data = await ctx.store.exportData({ withPhotos: choice === 'Export with photos' });
         await saveJson(JSON.stringify(data), `bey-lab-${today()}.json`);
