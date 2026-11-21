@@ -1,13 +1,13 @@
 // Combos tab: one report card per combo, ordered by EV rating, with its results against every opponent faced.
 // DOM is built with textContent only (part names can be user-entered).
-import { blockingParts, comboLabel, comboParts, partRefName } from '../combo.js';
+import { blockingParts, comboLabel, comboParts, comboStats, partRefName } from '../combo.js';
 import { ratingsLeaderboard } from '../ratings.js';
 import { variantsFor } from '../ideas.js';
 import { matchupStats } from '../stats.js';
 import { pairingScores, finishBreakdown, comboFlags } from '../matchups.js';
 import { makeRng } from '../rng.js';
 import { battleScore } from '../scoring.js';
-import { h, comboThumbs, openComboBuilder, openSheet } from './pickers.js';
+import { h, comboThumbs, openComboBuilder, openSheet, statBars } from './pickers.js';
 import { toast } from './log.js';
 
 const ROW_SIMS = { draws: 4000, raceSims: 4000 };
@@ -75,6 +75,29 @@ function detailRow(st, br, title) {
   return tr;
 }
 
+// Top of each summed bar: a strong blade + ratchet + bit lands around 160 Attack/Defense/Stamina.
+const COMBO_SCALE = { attack: 160, defense: 160, stamina: 160, dash: 50, burst: 80 };
+const STAT_NAME = { attack: 'Attack', defense: 'Defense', stamina: 'Stamina', dash: 'X Dash', burst: 'Burst Res.' };
+
+// The combo's packaging stats as the sum of its parts, with how each total adds up.
+export function comboStatBox(cs) {
+  const box = statBars(cs.total, { title: 'Packaging stats (sum of parts)', scale: COMBO_SCALE });
+  const main = ['attack', 'defense', 'stamina'].filter((k) => cs.total[k] != null);
+  if (main.length === 3) {
+    const lean = main.reduce((a, b) => (cs.total[b] > cs.total[a] ? b : a));
+    box.append(h('p', { class: 'muted' }, `Leans ${STAT_NAME[lean]}.`));
+  }
+  const d = h('details', { class: 'adds-up' }, h('summary', {}, 'How it adds up'));
+  for (const k of Object.keys(STAT_NAME)) {
+    if (cs.total[k] == null) continue;
+    const terms = cs.parts.filter((p) => p.stats[k] != null).map((p) => `${p.name} ${p.stats[k]}`);
+    d.append(h('p', {}, `${STAT_NAME[k]} ${cs.total[k]} = ${terms.join(' + ')}`));
+  }
+  if (cs.missing.length) d.append(h('p', { class: 'muted' }, `No packaging stats for ${cs.missing.join(', ')}, so it isn't counted.`));
+  box.append(d);
+  return box;
+}
+
 function buildCard(ctx, state, c, ratingById, topIds) {
   const { partsById } = ctx;
   const battles = state.battles;
@@ -83,6 +106,8 @@ function buildCard(ctx, state, c, ratingById, topIds) {
   card.append(h('header', {}, comboThumbs(c, partsById), h('h3', {}, comboLabel(c, partsById))));
   const rr = ratingById.get(c.id);
   if (rr) card.append(h('p', {}, h('strong', {}, `Rating ${fmtEv(rr.r)}`), ` [${fmtEv(rr.lo)}, ${fmtEv(rr.hi)}] · ${rr.n} battles vs ${rr.opponents} combos`));
+  const cs = comboStats(c, partsById);
+  if (cs) card.append(comboStatBox(cs));
 
   // Every combo it has faced, strongest first.
   const faced = new Set();
@@ -238,6 +263,8 @@ function openVariantIdeas(ctx, c) {
   for (const v of list) {
     const card = h('article', { class: 'report' });
     card.append(h('header', {}, comboThumbs(v.combo, ctx.partsById), h('h3', {}, comboLabel(v.combo, ctx.partsById))), h('p', {}, v.reason));
+    const vs = comboStats(v.combo, ctx.partsById);
+    if (vs) card.append(comboStatBox(vs));
     const go = h('button', { type: 'button', class: 'primary' }, 'Try it');
     go.addEventListener('click', async () => {
       if (go.disabled) return;

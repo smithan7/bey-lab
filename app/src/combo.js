@@ -130,3 +130,24 @@ export function blockingParts(a, b, partsById) {
   const mine = new Set(comboParts(a));
   return [...new Set(comboParts(b))].filter((id) => mine.has(id) && !(partsById.get(id)?.owned && partsById.get(id)?.multiple));
 }
+
+const SUMMED = ['attack', 'defense', 'stamina', 'dash', 'burst'];
+
+/**
+ * A combo's packaging stats as the sum of its parts' printed stats (blade or CX pieces, ratchet,
+ * bit). Dash and Burst come only from parts that print them (bits). Parts must carry `stats`
+ * (withReference). Returns { total, parts: [{ id, name, stats }], missing: [names] }, or null when
+ * no part has stats.
+ */
+export function comboStats(combo, partsById) {
+  const total = {};
+  const parts = [], missing = [];
+  for (const id of comboParts(combo)) {
+    const p = lookup(partsById, id);
+    const name = partRefName(partsById, id);
+    if (!p?.stats) { missing.push(name); continue; }
+    parts.push({ id, name, stats: p.stats });
+    for (const k of SUMMED) if (p.stats[k] != null) total[k] = (total[k] ?? 0) + p.stats[k];
+  }
+  return parts.length ? { total, parts, missing } : null;
+}

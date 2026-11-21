@@ -112,3 +112,22 @@ test('blockingParts: shared parts block unless owned and marked multiple', () =>
   // Multiple without owned doesn't count.
   assert.deepEqual(blockingParts(a, b, pm({ 'blade:x': { owned: false, multiple: true }, 'bit:flat': { owned: true, multiple: true } })), ['blade:x']);
 });
+
+test('comboStats sums the packaging stats of every part', async () => {
+  const { comboStats } = await import('../src/combo.js');
+  const byId = new Map([
+    ['blade:x', { id: 'blade:x', kind: 'blade', name: 'Wizard Rod', stats: { attack: 15, defense: 25, stamina: 60 } }],
+    ['ratchet:1-60', { id: 'ratchet:1-60', kind: 'ratchet', name: '1-60', stats: { attack: 13, defense: 10, stamina: 7, height: 60 } }],
+    ['bit:h', { id: 'bit:h', kind: 'bit', name: 'Hexa', stats: { attack: 10, defense: 35, stamina: 45, dash: 10, burst: 50 } }],
+    ['bit:n', { id: 'bit:n', kind: 'bit', name: 'Nostats', stats: null }],
+  ]);
+  const c = { blade: { type: 'single', bladeId: 'blade:x' }, ratchet: 'ratchet:1-60', bit: 'bit:h' };
+  const s = comboStats(c, byId);
+  assert.deepEqual(s.total, { attack: 38, defense: 70, stamina: 112, dash: 10, burst: 50 });
+  assert.deepEqual(s.parts.map((p) => p.name), ['Wizard Rod', '1-60', 'Hexa']);
+  assert.deepEqual(s.missing, []);
+  const m = comboStats({ ...c, bit: 'bit:n' }, byId);
+  assert.deepEqual(m.total, { attack: 28, defense: 35, stamina: 67 });
+  assert.deepEqual(m.missing, ['Nostats']);
+  assert.equal(comboStats({ blade: { type: 'single', bladeId: 'nope' }, ratchet: null, bit: 'bit:n' }, byId), null);
+});
