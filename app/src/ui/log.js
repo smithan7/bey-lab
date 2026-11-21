@@ -47,7 +47,9 @@ export function kidSummary(r, lName, rName) {
   return [head, `${lead} has won ${won} of ${r.n} battles${draws}.`, set];
 }
 
-const FINISHES = [['spin', 'Spin'], ['burst', 'Burst'], ['pocket', 'Pocket'], ['xtreme', 'Xtreme']];
+const FINISHES = [['spin', 'Spin'], ['burst', 'Burst'], ['pocket', 'Pocket'], ['out', 'Out of arena'], ['xtreme', 'Xtreme']];
+// Older battles may have finish 'unknown' (2 pts, burst or pocket not noted).
+const FINISH_LABEL = { spin: 'Spin', burst: 'Burst', pocket: 'Pocket', out: 'Out of arena', xtreme: 'Xtreme', unknown: '2 pts' };
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
 
 // Session memory (not persisted).
@@ -155,7 +157,7 @@ export const tab = {
       for (const b of acts) b.disabled = true;
       try {
         await ctx.store.addBattle({ id: crypto.randomUUID(), left: last.left, right: last.right, winner, finish, points, note, ts: Date.now() });
-        const label = winner === 'draw' ? 'Draw' : finish === 'unknown' ? '2 pts (type unknown)' : cap(finish);
+        const label = winner === 'draw' ? 'Draw' : FINISH_LABEL[finish] ?? cap(finish);
         const who = winner === 'draw' ? `${lName} vs ${rName}` : labelOf(winner === 'left' ? last.left : last.right);
         toast(winner === 'draw' ? `Draw: ${who}` : `${label} → ${who}`);
         busy = false;
@@ -179,7 +181,6 @@ export const tab = {
       const pts = FINISH_POINTS[f];
       grid.append(act(`◀ ${name} ${pts}`, () => record('left', f, pts), 'win'), act(`${name} ${pts} ▶`, () => record('right', f, pts), 'win'));
     }
-    grid.append(act('◀ 2 pts (type unknown)', () => record('left', 'unknown', 2)), act('2 pts (type unknown) ▶', () => record('right', 'unknown', 2)));
 
     const draw = act('Draw', async () => {
       if (busy) return;
@@ -211,7 +212,7 @@ export const tab = {
         const L = names.get(b.left) ?? b.left, R = names.get(b.right) ?? b.right;
         await ctx.store.undoLastBattle();
         toast(b.winner === 'draw' ? `Undid draw: ${L} vs ${R}`
-          : `Undid ${b.finish === 'unknown' ? '2 pts' : cap(b.finish ?? 'win')} → ${b.winner === 'left' ? L : R} (vs ${b.winner === 'left' ? R : L})`);
+          : `Undid ${FINISH_LABEL[b.finish] ?? cap(b.finish ?? 'win')} → ${b.winner === 'left' ? L : R} (vs ${b.winner === 'left' ? R : L})`);
         busy = false;
         await ctx.refresh();
       } catch (e) {

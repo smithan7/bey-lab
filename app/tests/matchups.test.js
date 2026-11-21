@@ -142,3 +142,12 @@ test('mirror is not estimated', () => {
   assert.equal(d.estimated, false);
   assert.ok(Math.abs(meanOf(d.counts)) < 1e-9);
 });
+
+test('out of arena: counted as its own finish and as a knock-out', async () => {
+  const { finishBreakdown, comboFlags } = await import('../src/matchups.js');
+  const bs = Array.from({ length: 10 }, (_, i) => ({ id: `o${i}`, left: 'A', right: 'B', winner: i < 4 ? 'right' : 'left', finish: i < 4 ? 'out' : 'spin', points: i < 4 ? 2 : 1, ts: i }));
+  const br = finishBreakdown(bs, 'A', 'B');
+  assert.equal(br.lost.out, 4);
+  assert.equal(br.lost.unknown, 0);
+  assert.ok(comboFlags(br).includes('ko-risk'));
+});

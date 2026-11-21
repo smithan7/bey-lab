@@ -97,7 +97,7 @@ test('ko-risk fix swaps the bit of Rocket Griffon when it is in the #1 deck', ()
   const out = suggestTests(st, parts, withRatings(st, [{ deck: [G, C, H] }]));
   const fix = out.find((s) => s.kind === 'fix' && s.replaces === G);
   assert.ok(fix);
-  assert.match(fix.reason, /^Rocket Griffon Hexa was knocked out \(Pocket or Xtreme\) in 4 of 10 battles — test a different bit\./);
+  assert.match(fix.reason, /^Rocket Griffon Hexa was knocked out \(Pocket, Xtreme or out of the arena\) in 4 of 10 battles — test a different bit\./);
   assert.notEqual(fix.left.bit, 'bit:hexa');
   assert.equal(validateCombo(fix.left, byId), null);
   assertOwnedOrReplaced(fix);

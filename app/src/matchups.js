@@ -29,7 +29,7 @@ export function pairingDistribution(battles, a, b) {
   return { counts: outcomeCounts(scores), n: scores.length };
 }
 
-const emptyFinishes = () => ({ spin: 0, burst: 0, pocket: 0, xtreme: 0, unknown: 0 });
+const emptyFinishes = () => ({ spin: 0, burst: 0, pocket: 0, out: 0, xtreme: 0, unknown: 0 });
 
 // b omitted: pool over all of a's battles. won/lost are from a's side.
 export function finishBreakdown(battles, a, b) {
@@ -50,7 +50,7 @@ export function comboFlags(br) {
   if (br.n === 0) return ['low-data'];
   const flags = [];
   if (br.lost.burst / br.n >= 0.2) flags.push('burst-risk');
-  if ((br.lost.pocket + br.lost.xtreme) / br.n >= 0.3) flags.push('ko-risk');
+  if ((br.lost.pocket + br.lost.out + br.lost.xtreme) / br.n >= 0.3) flags.push('ko-risk');
   if (br.n < 10) flags.push('low-data');
   return flags;
 }
