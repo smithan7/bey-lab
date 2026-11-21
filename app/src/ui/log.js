@@ -1,9 +1,11 @@
-// Log tab: pick two combos, tap who won and how. Fast and hard to mis-tap.
+// Battle tab (id 'log'): pick two combos, tap who won and how. Fast and hard to mis-tap.
 import { FINISH_POINTS } from '../scoring.js';
 import { matchupStats } from '../stats.js';
 import { pairingScores } from '../matchups.js';
 import { comboLabel } from '../combo.js';
 import { h, comboThumbs, openComboPicker } from './pickers.js';
+
+const clamp3 = (v) => Math.min(3, Math.max(-3, v));
 
 export function logReadout(state, left, right, opts = {}) {
   const scores = pairingScores(state.battles, left, right);
@@ -17,8 +19,9 @@ export function logReadout(state, left, right, opts = {}) {
     n, wins, draws, losses,
     record: `${wins}-${draws}-${losses}`, // wins-draws-losses, from the left combo's side
     batchCount: n % 10,
-    ev: st ? st.ev : null,
-    evCI: st ? st.evCI : null,
+    // One battle scores −3..+3, so EV and its range can't go past ±3 (the bootstrap can overshoot).
+    ev: st ? clamp3(st.ev) : null,
+    evCI: st ? st.evCI.map(clamp3) : null,
     pEvNeg: st ? st.pEvNeg : null,
   };
 }
@@ -28,7 +31,7 @@ export function logReadout(state, left, right, opts = {}) {
  * are, then that combo's win count. r is a logReadout result; ev and pEvNeg are from the left side.
  */
 export function kidSummary(r, lName, rName) {
-  if (!r.n) return [`${lName} and ${rName} haven't battled yet. Tap who wins below to start!`];
+  if (!r.n) return [`${lName} and ${rName} haven't battled yet. Tap who wins to start!`];
   if (r.ev == null) return ['Only 1 battle so far. Battle some more to find out who\'s better!'];
   const leftAhead = r.ev >= 0;
   const [lead, other] = leftAhead ? [lName, rName] : [rName, lName];
@@ -74,6 +77,9 @@ export function intervalPositions(ev, evCI) {
   return { dot: pos(ev), fillLeft: pos(evCI[1]), fillWidth: pos(evCI[0]) - pos(evCI[1]) };
 }
 
+const TICKS = [2, 1, -1, -2];
+const tickPos = (v) => (3 - v) / 6 * 100;
+
 function intervalBar(r) {
   const p = intervalPositions(r.ev, r.evCI);
   const track = h('div', { class: 'ibar', role: 'img',
@@ -82,15 +88,22 @@ function intervalBar(r) {
   fill.style.left = `${p.fillLeft}%`;
   fill.style.width = `${p.fillWidth}%`;
   const zero = h('div', { class: 'ibar-zero' }); zero.style.left = '50%';
+  const ticks = TICKS.map((v) => { const t = h('div', { class: 'ibar-tick' }); t.style.left = `${tickPos(v)}%`; return t; });
   const dot = h('div', { class: 'ibar-ev' }); dot.style.left = `${p.dot}%`;
-  track.append(fill, zero, dot);
-  const axis = h('div', { class: 'ibar-axis' }, h('span', {}, '◀ Left +3'), h('span', {}, '0'), h('span', {}, 'Right +3 ▶'));
+  track.append(fill, ...ticks, zero, dot);
+  // Labels sit under each mark: left side counts up toward the left card, right side toward the right.
+  const axis = h('div', { class: 'ibar-axis' });
+  for (const v of [3, 2, 1, 0, -1, -2, -3]) {
+    const l = h('span', {}, v === 3 ? '◀ +3' : v === -3 ? '+3 ▶' : v === 0 ? '0' : `+${Math.abs(v)}`);
+    l.style.left = `${tickPos(v)}%`;
+    axis.append(l);
+  }
   return h('div', {}, track, axis);
 }
 
 export const tab = {
   id: 'log',
-  label: 'Log',
+  label: 'Battle',
   render(ctx, el, params) {
     if (params && params !== lastParams) {
       lastParams = params;

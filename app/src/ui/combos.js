@@ -224,7 +224,7 @@ function openEditCombo(ctx, c) {
   });
 }
 
-// Three suggested variants of a combo; "Try it" saves one and opens the Log against the strongest
+// Three suggested variants of a combo; "Try it" saves one and opens the Battle tab against the strongest
 // combo it can be built alongside.
 function openVariantIdeas(ctx, c) {
   const state = ctx.store.state();
@@ -284,7 +284,7 @@ function justBuiltPanel(ctx, state, rankedIds) {
   // Only opponents it can be built alongside (no shared part you have just one of).
   const opps = pool.filter((id) => !shares(id)).slice(0, 3);
   if (opps.length) {
-    panel.append(h('p', { class: 'muted' }, 'Test it against the strongest combos — tap one to open the Log with both combos picked:'));
+    panel.append(h('p', { class: 'muted' }, 'Test it against the strongest combos — tap one to open the Battle tab with both combos picked:'));
     const row = h('div', { class: 'row-btns' });
     for (const o of opps) {
       const ob = h('button', { type: 'button' }, `vs ${comboLabel(state.combos.find((x) => x.id === o), ctx.partsById)}`);

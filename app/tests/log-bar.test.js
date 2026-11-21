@@ -29,7 +29,7 @@ const R = (o) => ({ n: 10, wins: 6, draws: 0, losses: 4, ev: 0.4, evCI: [-0.2, 1
 
 test('kidSummary: no battles, one battle', () => {
   assert.deepEqual(kidSummary(R({ n: 0, wins: 0, losses: 0, ev: null }), 'Shark', 'Wizard'),
-    ["Shark and Wizard haven't battled yet. Tap who wins below to start!"]);
+    ["Shark and Wizard haven't battled yet. Tap who wins to start!"]);
   assert.match(kidSummary(R({ n: 1, wins: 1, losses: 0, ev: null }), 'Shark', 'Wizard')[0], /^Only 1 battle so far/);
 });
 

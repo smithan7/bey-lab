@@ -305,3 +305,46 @@ export function suggestTests(state, parts, lineupResult, { reference } = {}) {
 
   return out.slice(0, MAX_SUGGESTIONS);
 }
+
+/**
+ * The k tests that would best confirm a deck: matchups of its members against other tested combos,
+ * favouring ones with few or no battles whose predicted result is least certain (largest
+ * variance of r_a − r_b in the rating model). Spread across members first. Skips pairs that
+ * share a part you can't double up on. Returns [{ a, b, n, reason }] (a is the deck member).
+ */
+export function confirmTests(state, parts, deck, { k = 3, model = fitModel(state.battles ?? []) } = {}) {
+  const partsById = new Map(parts.map((p) => [p.id, p]));
+  const combosById = new Map((state.combos ?? []).map((c) => [c.id, c]));
+  const battles = state.battles ?? [];
+  const q = (a, b) => {
+    const i = model?.idx.get(a), j = model?.idx.get(b);
+    if (i == null || j == null) return 10;
+    return model.Ainv[i][i] + model.Ainv[j][j] - 2 * model.Ainv[i][j];
+  };
+  const cands = [];
+  for (const a of deck) {
+    const ca = combosById.get(a);
+    if (!ca) continue;
+    for (const b of opponentCombos(state)) {
+      const cb = combosById.get(b);
+      // Deck-mates never face each other at an event, so testing them doesn't confirm the deck.
+      if (deck.includes(b) || !cb || blockingParts(ca, cb, partsById).length) continue;
+      const n = pairingScores(battles, a, b).length;
+      cands.push({ a, b, n, pri: q(a, b) / (1 + n) });
+    }
+  }
+  cands.sort((x, y) => y.pri - x.pri);
+  const out = [], used = new Set(), seen = new Set();
+  const key = (c) => [c.a, c.b].sort().join('|');
+  for (const pass of [0, 1]) {
+    for (const c of cands) {
+      if (out.length >= k) break;
+      if (seen.has(key(c)) || (pass === 0 && used.has(c.a))) continue;
+      out.push(c); used.add(c.a); seen.add(key(c));
+    }
+  }
+  return out.map(({ a, b, n }) => ({ a, b, n, reason: n === 0
+    ? 'Never battled, so the app is guessing this one from ratings.'
+    : n < 10 ? `Only ${n} battle${n === 1 ? '' : 's'} so far, so the result is still a rough guess.`
+      : `${n} battles so far, but it's still one of the least certain results behind this deck.` }));
+}
