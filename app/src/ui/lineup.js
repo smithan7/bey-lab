@@ -1,6 +1,7 @@
 // Lineup tab: the best legal 3-bey deck. Ranking runs in a module worker; getLineup is shared with the Next tab.
 import { comboLabel, comboParts } from '../combo.js';
-import { h, comboThumbs } from './pickers.js';
+import { h, comboThumbs, openSheet } from './pickers.js';
+import { confirmTests } from '../suggest.js';
 import { fmtEv, fmtPct } from './combos.js';
 
 function hashStr(s) {
@@ -135,6 +136,25 @@ function leaderboard(el, rows, state, parts, label) {
   el.append(h('div', { class: 'tscroll' }, table));
 }
 
+// Sheet with the tests that would best confirm a deck (confirmTests), each with a Battle button.
+function openConfirm(ctx, state, parts, deck, label, partsById, byId) {
+  const sheet = openSheet('Tests to confirm this deck');
+  const close = h('button', { type: 'button' }, 'Close');
+  close.addEventListener('click', () => sheet.done(null));
+  sheet.head.replaceChildren(close, sheet.heading);
+  const tests = confirmTests(state, parts, deck);
+  sheet.body.append(h('p', { class: 'muted' }, `${deck.map(label).join(' / ')}. These matchups are the biggest guesses behind this deck's win chance. About 10 battles each; the list updates as you test.`));
+  if (!tests.length) sheet.body.append(h('p', {}, 'Nothing to suggest: every matchup you can run for this deck is already tested.'));
+  const side = (id) => h('div', { class: 'side' }, comboThumbs(byId.get(id), partsById), h('strong', {}, label(id)));
+  tests.forEach((t, i) => {
+    const go = h('button', { type: 'button', class: 'primary' }, 'Battle');
+    go.addEventListener('click', () => { sheet.done(null); ctx.goTo('log', { left: t.a, right: t.b }); });
+    sheet.body.append(h('article', { class: 'report' }, h('h3', {}, `Test ${i + 1}`),
+      h('div', { class: 'matchup' }, side(t.a), h('span', { class: 'vs' }, 'vs'), side(t.b)),
+      h('p', {}, t.reason), h('div', { class: 'toggles' }, go)));
+  });
+}
+
 function renderResult(ctx, el, result, state, parts) {
   const partsById = new Map(parts.map((p) => [p.id, p]));
   const byId = new Map(state.combos.map((c) => [c.id, c]));
@@ -190,12 +210,18 @@ function renderResult(ctx, el, result, state, parts) {
       }
       const testedPct = Math.round((1 - (r.estimatedShare ?? 0)) * 100);
       const est = (r.estimatedShare ?? 0) > 0.5;
-      card.append(h('p', { class: est ? 'chip flag' : 'muted' },
-        `Based on ${testedPct}% tested matchups${est ? ' — mostly estimated from ratings, test more to confirm' : ''}`));
+      // Warnings are buttons: tapping one lists the tests that would best confirm this deck.
+      const flag = (txt) => {
+        const b = h('button', { type: 'button', class: 'chip flag confirm' }, `${txt} › Tap for the 3 tests to run`);
+        b.addEventListener('click', () => openConfirm(ctx, state, parts, r.deck, label, partsById, byId));
+        return b;
+      };
+      const based = `Based on ${testedPct}% tested matchups`;
+      card.append(est ? flag(`${based} — mostly estimated from ratings, test more to confirm.`) : h('p', { class: 'muted' }, based));
       // One mostly-estimated member can hide behind two well-tested ones, so name it.
       (r.memberEstimated ?? []).forEach((share, m) => {
         if (est || share <= 0.5) return;
-        card.append(h('p', { class: 'chip flag' }, `${label(r.deck[m])}: ${Math.round((1 - share) * 100)}% of its matchups tested — mostly estimated, test more to confirm`));
+        card.append(flag(`${label(r.deck[m])}: ${Math.round((1 - share) * 100)}% of its matchups tested — mostly estimated, test more to confirm.`));
       });
       el.append(card);
       if (hero && top.length > 1) el.append(h('h2', { class: 'runners' }, 'Runners-up'));

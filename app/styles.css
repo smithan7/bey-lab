@@ -93,7 +93,12 @@ button:disabled { opacity: .5; }
 .ibar-fill { position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: .45; border-radius: 8px; }
 .ibar-zero { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--text); }
 .ibar-ev { position: absolute; top: 2px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: var(--accent); }
-.ibar-axis { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
+.ibar-tick { position: absolute; top: 0; bottom: 0; width: 1px; margin-left: -0.5px; background: var(--muted); opacity: .6; }
+.ibar-axis { position: relative; height: 18px; margin-top: 2px; font-size: 13px; color: var(--muted); }
+.ibar-axis span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.ibar-axis span:first-child { transform: none; }
+.ibar-axis span:last-child { transform: translateX(-100%); }
+button.chip.confirm { display: block; width: 100%; text-align: left; font: inherit; font-size: 14px; font-weight: 600; min-height: 44px; cursor: pointer; margin: 6px 0; }
 #toast { position: fixed; left: 50%; bottom: calc(var(--tab-h) + 24px + env(safe-area-inset-bottom)); transform: translateX(-50%); max-width: 90vw; background: var(--text); color: var(--bg); padding: 12px 20px; border-radius: 12px; opacity: 0; pointer-events: none; transition: opacity .15s; z-index: 200; text-align: center; }
 #toast.show { opacity: 1; }
 .report { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 4px 16px 16px; margin-bottom: 16px; }

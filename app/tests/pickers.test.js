@@ -43,3 +43,13 @@ test('logReadout: no data is unknown, partial batch counts', () => {
   const s2 = { ...state, battles: [...state.battles, { id: 'z', left: a, right: b, winner: 'left', finish: 'spin', points: 1, ts: 1 }] };
   assert.equal(logReadout(s2, a, b).batchCount, 1);
 });
+
+test('logReadout: EV range never goes past ±3', () => {
+  const a = idOf('Red Hulk 1-60 Low Rush'), b = idOf('Rocket Griffon Hexa');
+  // Two Xtreme wins and nothing else: a wide bootstrap/t range that would overshoot +3.
+  const extra = [1, 2].map((i) => ({ id: `x${i}`, left: a, right: b, winner: 'left', finish: 'xtreme', points: 3, ts: i }));
+  const extra2 = [{ id: 'x3', left: a, right: b, winner: 'right', finish: 'spin', points: 1, ts: 3 }];
+  const r = logReadout({ ...state, battles: [...state.battles, ...extra, ...extra2] }, a, b);
+  assert.ok(r.evCI[0] >= -3 && r.evCI[1] <= 3, String(r.evCI));
+  assert.ok(r.ev >= -3 && r.ev <= 3);
+});

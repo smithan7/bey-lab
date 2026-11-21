@@ -380,3 +380,33 @@ test('idea: untried combos from owned parts come after unlocks, at most 2, never
   // Without reference data there are no ideas.
   assert.ok(!suggestTests(st, parts, withRatings(st, [])).some((s) => s.kind === 'idea'));
 });
+
+test('confirmTests: three uncertain matchups for a deck, spread across its members', async () => {
+  const { confirmTests } = await import('../src/suggest.js');
+  const { normalizeCatalog, mergeParts } = await import('../src/catalog.js');
+  const { comboId } = await import('../src/combo.js');
+  const { readFileSync } = await import('node:fs');
+  const raw = JSON.parse(readFileSync(new URL('../data/parts-catalog.json', import.meta.url), 'utf8'));
+  const blades = ['blade:wizard-rod', 'blade:shark-scale', 'blade:phoenix-wing', 'blade:dran-sword', 'blade:hells-scythe', 'blade:knight-shield'];
+  const ratchets = ['ratchet:1-60', 'ratchet:3-60', 'ratchet:4-60', 'ratchet:5-60', 'ratchet:9-60', 'ratchet:3-80'];
+  const bits = ['bit:hexa', 'bit:point', 'bit:ball', 'bit:flat', 'bit:needle', 'bit:rush'];
+  const parts = mergeParts(normalizeCatalog(raw), [], Object.fromEntries([...blades, ...ratchets, ...bits].map((id) => [id, { owned: true }])));
+  const combos = blades.map((b, i) => { const c = { blade: { type: 'single', bladeId: b }, ratchet: ratchets[i], bit: bits[i] }; return { ...c, id: comboId(c) }; });
+  const [A, B, C, D, E, F] = combos.map((c) => c.id);
+  let t = 0;
+  const bat = (l, r, w, x = 10) => Array.from({ length: x }, () => ({ id: `b${t++}`, left: l, right: r, winner: w, finish: 'spin', points: 1, ts: t }));
+  // Deck A/B/C. A vs D well tested; E and F battled only each other and D.
+  const battles = [...bat(A, D, 'left'), ...bat(B, D, 'left'), ...bat(C, D, 'right'), ...bat(E, F, 'left'), ...bat(D, E, 'left', 1), ...bat(A, B, 'left', 2), ...bat(B, C, 'left', 2)];
+  const state = { combos, battles };
+  const tests = confirmTests(state, parts, [A, B, C]);
+  assert.equal(tests.length, 3);
+  assert.deepEqual(new Set(tests.map((x) => x.a)), new Set([A, B, C]), 'one per member');
+  for (const x of tests) {
+    assert.ok([A, B, C].includes(x.a));
+    assert.ok(![A, B, C].includes(x.b), 'never a deck-mate');
+    assert.ok(x.n < 10, 'not a well-tested pair');
+    assert.ok(x.reason.length > 10);
+  }
+  assert.ok(tests.some((x) => x.n === 0 && /Never battled/.test(x.reason)));
+  assert.equal(new Set(tests.map((x) => [x.a, x.b].sort().join())).size, 3, 'no repeated pair');
+});
