@@ -274,7 +274,7 @@ export function suggestTests(state, parts, lineupResult, { reference } = {}) {
     if (!swap || !right) continue;
     const text = burst
       ? `was burst in ${br.lost.burst} of ${br.n} battles`
-      : `was knocked out (Pocket or Xtreme) in ${br.lost.pocket + br.lost.xtreme} of ${br.n} battles`;
+      : `was knocked out (Pocket, Xtreme or out of the arena) in ${br.lost.pocket + br.lost.out + br.lost.xtreme} of ${br.n} battles`;
     fixes.push({ left: swap.c, right, reason: `${label(combo)} ${text} — test a different ${swap.what}.`, replaces: combo.id });
   }
 

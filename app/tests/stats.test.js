@@ -30,7 +30,7 @@ test('dirichlet sums to 1; gamma positive; shuffle copies', () => {
 
 test('constants', () => {
   assert.deepEqual(OUTCOMES, [-3,-2,-1,0,1,2,3]);
-  assert.deepEqual(FINISH_POINTS, { spin: 1, burst: 2, pocket: 2, xtreme: 3 });
+  assert.deepEqual(FINISH_POINTS, { spin: 1, burst: 2, pocket: 2, out: 2, xtreme: 3 });
 });
 
 test('battleScore', () => {

@@ -1,5 +1,6 @@
 export const OUTCOMES = [-3, -2, -1, 0, 1, 2, 3];
-export const FINISH_POINTS = { spin: 1, burst: 2, pocket: 2, xtreme: 3 };
+// out: knocked out of the arena (not into a pocket), scored like an Over finish.
+export const FINISH_POINTS = { spin: 1, burst: 2, pocket: 2, out: 2, xtreme: 3 };
 
 // Signed points from comboId's side; 0 for a draw.
 export function battleScore(battle, comboId) {

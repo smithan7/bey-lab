@@ -13,7 +13,7 @@ import { toast } from './log.js';
 const ROW_SIMS = { draws: 4000, raceSims: 4000 };
 const TOP_CLASH = 5;
 const FLAG_TEXT = { 'burst-risk': 'Burst risk', 'ko-risk': 'KO risk', 'low-data': 'Low data' };
-const FINISH_NAMES = [['xtreme', 'Xtreme'], ['pocket', 'Pocket'], ['burst', 'Burst'], ['spin', 'Spin'], ['unknown', 'Unknown type']];
+const FINISH_NAMES = [['xtreme', 'Xtreme'], ['pocket', 'Pocket'], ['out', 'Out of arena'], ['burst', 'Burst'], ['spin', 'Spin'], ['unknown', '2 pts, type unknown']];
 
 export const fmtEv = (v) => `${Math.round(Math.abs(v) * 100) === 0 || v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}`;
 export const fmtPct = (v) => `${Math.round(v * 100)}%`;
