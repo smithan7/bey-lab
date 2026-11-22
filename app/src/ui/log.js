@@ -33,7 +33,14 @@ export function logReadout(state, left, right, opts = {}) {
 export function kidSummary(r, lName, rName) {
   if (!r.n) return [`${lName} and ${rName} haven't battled yet. Tap who wins to start!`];
   if (r.ev == null) return ['Only 1 battle so far. Battle some more to find out who\'s better!'];
-  const leftAhead = r.ev >= 0;
+  const set = r.batchCount ? `This set: ${r.batchCount} of 10 battles done.` : 'That finishes a set of 10! Do another set, or try a new matchup.';
+  const drawsTxt = r.draws ? `, and ${r.draws} ${r.draws === 1 ? 'was a draw' : 'were draws'}` : '';
+  // Exactly level (shows as 0.00): neither is ahead, so don't name a leader.
+  if (Math.abs(r.ev) < 0.005) {
+    return [`It's a tie so far! ${lName} and ${rName} are dead even. Keep battling to find out who's better.`,
+      `${lName} has won ${r.wins} and ${rName} has won ${r.losses} of ${r.n} battles${drawsTxt}.`, set];
+  }
+  const leftAhead = r.ev > 0;
   const [lead, other] = leftAhead ? [lName, rName] : [rName, lName];
   const sure = leftAhead ? 1 - r.pEvNeg : r.pEvNeg; // chance the leader really is better
   const gap = Math.abs(r.ev);
@@ -43,7 +50,6 @@ export function kidSummary(r, lName, rName) {
     : `${lead} ${sure >= 0.9 ? 'should' : 'will probably'} beat ${other}, by ${by} a battle.`;
   const won = leftAhead ? r.wins : r.losses;
   const draws = r.draws ? ` (and ${r.draws} ${r.draws === 1 ? 'was a draw' : 'were draws'})` : '';
-  const set = r.batchCount ? `This set: ${r.batchCount} of 10 battles done.` : 'That finishes a set of 10! Do another set, or try a new matchup.';
   return [head, `${lead} has won ${won} of ${r.n} battles${draws}.`, set];
 }
 
