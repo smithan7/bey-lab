@@ -56,3 +56,11 @@ test('kidSummary: set progress, including a finished set', () => {
   assert.equal(kidSummary(R({ n: 10, batchCount: 0 }), 'Shark', 'Wizard')[2], 'That finishes a set of 10! Do another set, or try a new matchup.');
   assert.equal(kidSummary(R({ n: 13, batchCount: 3 }), 'Shark', 'Wizard')[2], 'This set: 3 of 10 battles done.');
 });
+
+test('kidSummary: an exact tie names no leader', () => {
+  const [head, line] = kidSummary(R({ n: 4, wins: 2, losses: 2, draws: 0, ev: 0, pEvNeg: 0.5, batchCount: 4 }), 'Shark', 'Wizard');
+  assert.equal(head, "It's a tie so far! Shark and Wizard are dead even. Keep battling to find out who's better.");
+  assert.equal(line, 'Shark has won 2 and Wizard has won 2 of 4 battles.');
+  const [, l2] = kidSummary(R({ n: 5, wins: 2, losses: 2, draws: 1, ev: 0, pEvNeg: 0.5, batchCount: 5 }), 'Shark', 'Wizard');
+  assert.equal(l2, 'Shark has won 2 and Wizard has won 2 of 5 battles, and 1 was a draw.');
+});
