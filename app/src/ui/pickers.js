@@ -288,3 +288,28 @@ export function comboThumbs(c, partsById) {
   }
   return box;
 }
+
+const STAT_ROWS = [['attack', 'Attack'], ['defense', 'Defense'], ['stamina', 'Stamina'], ['dash', 'X Dash'], ['burst', 'Burst Res.']];
+const SEGMENTS = 10;
+
+/**
+ * Packaging-style segmented stat bars with the number at the end. scale is the top of the bar,
+ * either one number or { attack: 160, dash: 50, … }.
+ */
+export function statBars(stats, { title = 'Packaging stats', scale = 100 } = {}) {
+  const box = h('section', { class: 'statbars', 'aria-label': title });
+  const head = h('h3', {}); head.textContent = title;
+  box.append(head);
+  for (const [key, name] of STAT_ROWS) {
+    const v = stats[key];
+    if (v == null) continue;
+    const top = typeof scale === 'number' ? scale : scale[key] ?? 100;
+    const filled = Math.max(v > 0 ? 1 : 0, Math.min(SEGMENTS, Math.round((v / top) * SEGMENTS)));
+    const bar = h('div', { class: 'segbar', role: 'img', 'aria-label': `${name} ${v}` });
+    for (let i = 0; i < SEGMENTS; i++) bar.append(h('span', { class: i < filled ? 'on' : '' }));
+    const n = h('span', { class: 'statname' }); n.textContent = name;
+    const val = h('span', { class: 'statval' }); val.textContent = String(v);
+    box.append(h('div', { class: `statrow stat-${key}` }, n, bar, val));
+  }
+  return box;
+}

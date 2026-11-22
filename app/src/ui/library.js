@@ -2,7 +2,7 @@
 // DOM is built with textContent only (names can be user-entered).
 import { PART_KINDS, PART_TYPES, searchParts, slug, sortParts, typeLabel } from '../catalog.js';
 import { resizeImage } from '../photos.js';
-import { h, openSheet, searchBox, listButton, comboThumbs } from './pickers.js';
+import { h, openSheet, searchBox, listButton, comboThumbs, statBars } from './pickers.js';
 import { partsToFind } from '../ideas.js';
 import { fitRatings } from '../ratings.js';
 import { toast } from './log.js';
@@ -228,22 +228,9 @@ const TIER_ORDER = { X: 5, S: 4, A: 3, B: 2, C: 1, '?': 0.5 };
 const tierRank = (p) => (p.meta ? TIER_ORDER[p.meta.tier] ?? 0 : -1);
 // Top of each kind's packaging scale (just above the highest value printed for that kind).
 const STAT_SCALE = { blade: 100, main_blade: 50, over_blade: 10, metal_blade: 25, assist_blade: 40, ratchet: 20, bit: 80, lock_chip: 50 };
-const STAT_ROWS = [['attack', 'Attack'], ['defense', 'Defense'], ['stamina', 'Stamina'], ['dash', 'X Dash'], ['burst', 'Burst Res.']];
-const SEGMENTS = 10;
-
 // Segmented bars like the ones on the box, with the number at the end.
-function statBars(part) {
-  const box = h('section', { class: 'statbars', 'aria-label': 'Packaging stats' });
-  box.append(text('h3', '', 'Packaging stats'));
-  const scale = STAT_SCALE[part.kind] ?? 100;
-  for (const [key, name] of STAT_ROWS) {
-    const v = part.stats[key];
-    if (v == null) continue;
-    const filled = Math.max(v > 0 ? 1 : 0, Math.min(SEGMENTS, Math.round((v / scale) * SEGMENTS)));
-    const bar = h('div', { class: 'segbar', role: 'img', 'aria-label': `${name} ${v}` });
-    for (let i = 0; i < SEGMENTS; i++) bar.append(h('span', { class: i < filled ? 'on' : '' }));
-    box.append(h('div', { class: `statrow stat-${key}` }, text('span', 'statname', name), bar, text('span', 'statval', String(v))));
-  }
+function partStatBars(part) {
+  const box = statBars(part.stats, { title: 'Packaging stats', scale: STAT_SCALE[part.kind] ?? 100 });
   if (part.stats.height != null && part.kind === 'ratchet') box.append(text('p', 'muted', `Height ${part.stats.height}`));
   return box;
 }
@@ -299,7 +286,7 @@ function openDetail(ctx, partId) {
     if (part.name !== part.displayName) body.append(text('p', 'muted', `Catalog name: ${part.name}`));
     const alts = (part.altNames ?? []).join(', ');
     if (alts) body.append(text('p', 'muted', `Also known as: ${alts}`));
-    if (part.stats) body.append(statBars(part));
+    if (part.stats) body.append(partStatBars(part));
     if (part.meta) body.append(wboBox(part, ctx.reference));
 
     // How many you own: only matters for testing, since two combos sharing a part can battle
