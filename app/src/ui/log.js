@@ -66,9 +66,17 @@ let busy = false;
 // Session memory: the last "who should it battle next?" answer, shown while that pairing is picked.
 let spotNote = null;
 
-export function toast(text) {
+// `above`: the pressed button's rect. The notice then shows centered just above that button,
+// so a hand on the button doesn't cover it. Without it, it sits at the bottom as before.
+export function toast(text, { above } = {}) {
   const host = document.getElementById('toast') ?? document.body.appendChild(h('div', { id: 'toast', role: 'status', 'aria-live': 'polite' }));
   host.textContent = text;
+  host.style.top = '';
+  host.style.bottom = '';
+  if (above) {
+    host.style.bottom = 'auto';
+    host.style.top = `${Math.max(12, above.top - host.offsetHeight - 10)}px`;
+  }
   host.classList.add('show');
   clearTimeout(toast.t);
   toast.t = setTimeout(() => host.classList.remove('show'), 2200);
@@ -158,7 +166,7 @@ export const tab = {
       await ctx.refresh();
     });
 
-    async function record(winner, finish, points, note = '') {
+    async function record(winner, finish, points, note = '', from = null) {
       if (busy) return;
       errBox.textContent = '';
       if (!last.left || !last.right) { errBox.textContent = 'Pick both combos first.'; return; }
@@ -168,7 +176,7 @@ export const tab = {
         await ctx.store.addBattle({ id: crypto.randomUUID(), left: last.left, right: last.right, winner, finish, points, note, ts: Date.now() });
         const label = winner === 'draw' ? 'Draw' : FINISH_LABEL[finish] ?? cap(finish);
         const who = winner === 'draw' ? `${lName} vs ${rName}` : labelOf(winner === 'left' ? last.left : last.right);
-        toast(winner === 'draw' ? `Draw: ${who}` : `${label} → ${who}`);
+        toast(winner === 'draw' ? `Draw: ${who}` : `${label} → ${who}`, { above: from });
         busy = false;
         await ctx.refresh();
       } catch (e) {
@@ -180,7 +188,8 @@ export const tab = {
     const act = (text, onClick, cls = '') => {
       const b = h('button', { type: 'button', class: `act ${cls}`.trim() });
       b.textContent = text;
-      b.addEventListener('click', onClick);
+      // Remember where it was pressed (the page re-renders before the notice shows).
+      b.addEventListener('click', () => onClick(b.getBoundingClientRect()));
       acts.push(b);
       return b;
     };
@@ -188,10 +197,10 @@ export const tab = {
     const grid = h('div', { class: 'grid' });
     for (const [f, name] of FINISHES) {
       const pts = FINISH_POINTS[f];
-      grid.append(act(`◀ ${name} ${pts}`, () => record('left', f, pts), 'win'), act(`${name} ${pts} ▶`, () => record('right', f, pts), 'win'));
+      grid.append(act(`◀ ${name} ${pts}`, (at) => record('left', f, pts, '', at), 'win'), act(`${name} ${pts} ▶`, (at) => record('right', f, pts, '', at), 'win'));
     }
 
-    const draw = act('Draw', async () => {
+    const draw = act('Draw', async (at) => {
       if (busy) return;
       if (!last.left || !last.right) { errBox.textContent = 'Pick both combos first.'; return; }
       // Busy while the dialog is open, so a double tap can't open two dialogs or log twice.
@@ -208,12 +217,12 @@ export const tab = {
         busy = false;
         for (const x of acts) x.disabled = false;
       }
-      if (choice === 'Log draw') await record('draw', null, 0, input.value.trim());
+      if (choice === 'Log draw') await record('draw', null, 0, input.value.trim(), at);
     });
-    const undo = act('Undo last battle', async () => {
+    const undo = act('Undo last battle', async (at) => {
       if (busy) return;
       const b = lastBattle(ctx.store.state().battles);
-      if (!b) { toast('Nothing to undo'); return; }
+      if (!b) { toast('Nothing to undo', { above: at }); return; }
       busy = true;
       for (const x of acts) x.disabled = true;
       try {
@@ -221,7 +230,7 @@ export const tab = {
         const L = names.get(b.left) ?? b.left, R = names.get(b.right) ?? b.right;
         await ctx.store.undoLastBattle();
         toast(b.winner === 'draw' ? `Undid draw: ${L} vs ${R}`
-          : `Undid ${FINISH_LABEL[b.finish] ?? cap(b.finish ?? 'win')} → ${b.winner === 'left' ? L : R} (vs ${b.winner === 'left' ? R : L})`);
+          : `Undid ${FINISH_LABEL[b.finish] ?? cap(b.finish ?? 'win')} → ${b.winner === 'left' ? L : R} (vs ${b.winner === 'left' ? R : L})`, { above: at });
         busy = false;
         await ctx.refresh();
       } catch (e) {
