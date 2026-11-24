@@ -221,6 +221,9 @@ button.chip.confirm { display: block; width: 100%; text-align: left; font: inher
 .tier { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 22px; padding: 0 6px; border-radius: 6px; font-weight: 800; font-size: 13px; color: #fff; background: #6b7280; }
 .tile .tier { position: absolute; top: 16px; right: 52px; }
 .tier-X { background: #d6336c; } .tier-S { background: #f08c00; } .tier-A { background: #2f9e44; } .tier-B { background: #1c7ed6; } .tier-C { background: #6741d9; } .tier-q { background: #6b7280; }
+.tier-D { background: #868e96; }
+/* Graded from parts, or a guess: striped so it reads as softer than a real WBO tier. */
+.tier.guess { background-image: repeating-linear-gradient(135deg, rgb(255 255 255 / .38) 0 3px, transparent 3px 7px); text-shadow: 0 0 3px rgb(0 0 0 / .45); }
 .tier.big { min-width: 48px; height: 48px; font-size: 26px; border-radius: 10px; }
 .wbo-head { display: flex; gap: 12px; align-items: center; }
 .wbo-head p { margin: 2px 0; }

@@ -5,6 +5,7 @@ import { resizeImage } from '../photos.js';
 import { h, openSheet, searchBox, listButton, comboThumbs, statBars } from './pickers.js';
 import { partsToFind } from '../ideas.js';
 import { fitRatings } from '../ratings.js';
+import { gradesFor } from '../grades.js';
 import { toast } from './log.js';
 
 const GROUPS = [
@@ -109,7 +110,7 @@ export const tab = {
       if (!query.trim()) hits = sortParts(hits, group.kinds);
       if (ownedOnly) hits = hits.filter((p) => p.owned);
       if (typeFilter !== 'all') hits = hits.filter((p) => p.type === typeFilter);
-      if (byTier) hits = [...hits].sort((a, b) => tierRank(b) - tierRank(a) || (b.meta?.cuts ?? 0) - (a.meta?.cuts ?? 0));
+      if (byTier) { const g = gradesFor(ctx.parts); hits = [...hits].sort((a, b) => gradeRank(g.get(b.id)) - gradeRank(g.get(a.id)) || (b.meta?.cuts ?? 0) - (a.meta?.cuts ?? 0)); }
       const owned = base.filter((p) => p.owned).length;
       count.textContent = `${hits.length} shown · ${owned} of ${base.length} owned`;
       for (const p of hits) grid.append(tile(p));
@@ -138,7 +139,8 @@ export const tab = {
       if (tag) t.append(tag);
       t.append(s);
       if (p.owned) t.append(text('span', 'badge', p.multiple ? '✓ Owned · multiple' : '✓ Owned'));
-      if (p.meta) t.append(text('span', `tier tier-${p.meta.tier === '?' ? 'q' : p.meta.tier}`, p.meta.tier));
+      const g = gradesFor(ctx.parts).get(p.id);
+      if (g) t.append(gradeBadge(g));
       const info = h('button', { type: 'button', class: 'info', 'aria-label': `Details for ${p.displayName}` });
       info.textContent = 'ⓘ';
       info.addEventListener('click', (e) => { e.stopPropagation(); openDetail(ctx, p.id); });
@@ -160,7 +162,7 @@ export const tab = {
     ownedSw.addEventListener('click', () => { ownedOnly = !ownedOnly; ctx.refresh(); });
     const addBtn = btn('Add part', () => openAddPart(ctx), 'primary');
     const tierSw = h('button', { type: 'button', class: `switch${byTier ? ' on' : ''}`, role: 'switch', 'aria-checked': String(byTier) },
-      h('span', { class: 'knob' }), 'Sort by WBO tier');
+      h('span', { class: 'knob' }), 'Sort by tier');
     tierSw.addEventListener('click', () => { byTier = !byTier; ctx.refresh(); });
     const lookSw = h('button', { type: 'button', class: `switch${lookFor ? ' on' : ''}`, role: 'switch', 'aria-checked': String(lookFor) },
       h('span', { class: 'knob' }), 'Parts to look for');
@@ -206,7 +208,8 @@ function wantList(ctx, state, el) {
       const p = x.part;
       const img = p.imageUrl ? refImg(p, 'want-img') : text('div', 'want-img none', 'no photo');
       const head = h('div', { class: 'want-head' }, text('strong', '', p.displayName));
-      if (p.meta) head.append(text('span', `tier tier-${p.meta.tier === '?' ? 'q' : p.meta.tier}`, p.meta.tier));
+      const g = gradesFor(ctx.parts).get(p.id);
+      if (g) head.append(gradeBadge(g));
       const info = btn('Details', () => openDetail(ctx, p.id));
       const got = btn('I got it', async () => {
         await ctx.store.setOverride(p.id, { owned: true });
@@ -224,8 +227,24 @@ function wantList(ctx, state, el) {
 
 // ---------- reference: packaging stats and WBO results ----------
 
-const TIER_ORDER = { X: 5, S: 4, A: 3, B: 2, C: 1, '?': 0.5 };
-const tierRank = (p) => (p.meta ? TIER_ORDER[p.meta.tier] ?? 0 : -1);
+const TIER_ORDER = { X: 5, S: 4, A: 3, B: 2, C: 1, D: 0, '?': -0.5 };
+// Real WBO tiers sort just ahead of guesses of the same grade.
+const gradeRank = (g) => (g ? (TIER_ORDER[g.grade] ?? -1) + (g.basis === 'wbo' ? 0.1 : 0) : -1);
+const BASIS_TEXT = { parts: 'Graded from its parts', guess: 'A guess', new: 'Too new to grade', none: 'Not enough to go on' };
+// Solid badge = WBO tier; striped badge = graded from its parts, or a guess.
+function gradeBadge(g) {
+  const b = text('span', `tier tier-${g.grade === '?' ? 'q' : g.grade}${g.basis === 'wbo' ? '' : ' guess'}`, g.grade);
+  b.title = g.basis === 'wbo' ? 'WBO tier' : BASIS_TEXT[g.basis];
+  return b;
+}
+function guessBox(g) {
+  const box = h('section', { class: 'wbo' });
+  box.append(text('h3', '', 'Grade'));
+  box.append(h('div', { class: 'wbo-head' }, (() => { const b = gradeBadge(g); b.classList.add('big'); return b; })(),
+    h('div', {}, text('p', '', BASIS_TEXT[g.basis]), text('p', 'muted', g.why))));
+  box.append(text('p', 'muted', 'Striped badges are grades without WBO results of their own: worked out from the CX parts, or guessed from parts with similar packaging stats.'));
+  return box;
+}
 // Top of each kind's packaging scale (just above the highest value printed for that kind).
 const STAT_SCALE = { blade: 100, main_blade: 50, over_blade: 10, metal_blade: 25, assist_blade: 40, ratchet: 20, bit: 80, lock_chip: 50 };
 // Segmented bars like the ones on the box, with the number at the end.
@@ -288,6 +307,8 @@ function openDetail(ctx, partId) {
     if (alts) body.append(text('p', 'muted', `Also known as: ${alts}`));
     if (part.stats) body.append(partStatBars(part));
     if (part.meta) body.append(wboBox(part, ctx.reference));
+    const grade = gradesFor(ctx.parts).get(part.id);
+    if (grade && grade.basis !== 'wbo') body.append(guessBox(grade));
 
     // How many you own: only matters for testing, since two combos sharing a part can battle
     // each other only if you have more than one of it. Decks still can't repeat a part.
