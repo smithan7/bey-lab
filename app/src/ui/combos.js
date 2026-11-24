@@ -3,6 +3,7 @@
 import { blockingParts, comboLabel, comboParts, comboStats, partRefName } from '../combo.js';
 import { ratingsLeaderboard } from '../ratings.js';
 import { variantsFor } from '../ideas.js';
+import { spotTests, spotStatus } from '../spot.js';
 import { matchupStats } from '../stats.js';
 import { pairingScores, finishBreakdown, comboFlags } from '../matchups.js';
 import { makeRng } from '../rng.js';
@@ -185,11 +186,13 @@ function buildCard(ctx, state, c, ratingById, topIds) {
   card.append(chips);
 
   const toggles = h('div', { class: 'toggles' });
+  const spot = h('button', { type: 'button', class: 'find-spot' }, 'Find its spot');
+  spot.addEventListener('click', () => openSpot(ctx, c));
   const suggest = h('button', { type: 'button', class: 'suggest-variants' }, 'Suggest 3 variants');
   suggest.addEventListener('click', () => openVariantIdeas(ctx, c));
   const edit = h('button', { type: 'button', class: 'edit-combo' }, 'Edit');
   edit.addEventListener('click', () => openEditCombo(ctx, c));
-  toggles.append(suggest, edit);
+  toggles.append(spot, suggest, edit);
   card.append(toggles);
   return card;
 }
@@ -247,6 +250,37 @@ function openEditCombo(ctx, c) {
       await ctx.refresh();
     }
   });
+}
+
+// Up to 3 opponents most likely to settle whether this combo makes the best deck; "Battle" opens
+// the Battle tab with both picked.
+function openSpot(ctx, c) {
+  const state = ctx.store.state();
+  const name = comboLabel(c, ctx.partsById);
+  const sheet = openSheet(`Find the spot for ${name}`);
+  const close = h('button', { type: 'button' }, 'Close');
+  close.addEventListener('click', () => sheet.done(null));
+  sheet.head.append(close, sheet.heading);
+  const byId = new Map(state.combos.map((x) => [x.id, x]));
+  const nameOf = (id) => comboLabel(byId.get(id), ctx.partsById);
+  const res = spotTests(state, ctx.parts, c.id);
+  if (!res) { sheet.body.append(h('p', { class: 'muted' }, 'This combo no longer exists.')); return sheet.promise; }
+  sheet.body.append(h('p', { class: 'detail-title' }, spotStatus(res, nameOf, ctx.partsById)));
+  if (!res.tests.length) {
+    sheet.body.append(h('p', { class: 'muted' }, 'Nothing it can be built alongside has been tested yet.'));
+    return sheet.promise;
+  }
+  sheet.body.append(h('p', { class: 'muted' }, `Battle these to find out if it belongs in your best deck (the top 3 that don't share parts). About 10 battles each; the best one is first.`));
+  for (const t of res.tests) {
+    const opp = byId.get(t.b);
+    const card = h('article', { class: 'report' });
+    card.append(h('header', {}, comboThumbs(opp, ctx.partsById), h('h3', {}, `vs ${nameOf(t.b)}`)), h('p', {}, t.reason));
+    const go = h('button', { type: 'button', class: 'primary' }, 'Battle');
+    go.addEventListener('click', () => { sheet.done(null); ctx.goTo('log', { left: c.id, right: t.b }); });
+    card.append(h('div', { class: 'toggles' }, go));
+    sheet.body.append(card);
+  }
+  return sheet.promise;
 }
 
 // Three suggested variants of a combo; "Try it" saves one and opens the Battle tab against the strongest

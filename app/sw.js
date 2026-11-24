@@ -1,12 +1,12 @@
 // Bump CACHE_VERSION on every release.
-const CACHE_VERSION = 'bey-lab-v23';
+const CACHE_VERSION = 'bey-lab-v24';
 const PHOTO_CACHE = 'bey-lab-photos';
 const PHOTO_HOST = 'static.wikia.nocookie.net';
 const CORE = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest', 'data/parts-catalog.json', 'data/reference.json',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
   'src/catalog.js', 'src/combo.js', 'src/ratings.js', 'src/lineup-worker.js', 'src/lineup.js', 'src/matchups.js',
-  'src/rng.js', 'src/scoring.js', 'src/seed.js', 'src/sim.js', 'src/stats.js', 'src/store.js', 'src/suggest.js',
+  'src/rng.js', 'src/scoring.js', 'src/seed.js', 'src/sim.js', 'src/spot.js', 'src/stats.js', 'src/store.js', 'src/suggest.js',
   'src/ui/app.js', 'src/ui/settings.js', 'src/ui/log.js', 'src/ui/combos.js',
   'src/ui/lineup.js', 'src/ui/next.js', 'src/ui/library.js', 'src/ui/pickers.js', 'src/photos.js', 'src/ideas.js', 'src/theme.js',
 ];

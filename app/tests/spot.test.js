@@ -147,3 +147,8 @@ test('tiny pool does not throw', () => {
   assert.equal(res.status, 'out');
   assert.ok(Array.isArray(res.tests));
 });
+
+test('in the deck only because its parts count as owned → "Would make"', () => {
+  const res = { x: W, status: 'in', rank: 2, rated: 5, untested: false, notOwned: true, blockedBy: [], tests: [] };
+  assert.match(spotStatus(res, nameIn(settled()), byId), /^Would make your best deck \(rated #2 of 5\) once all of Wizard Rod 2-60 Gear Ball's parts are marked as owned\.$/);
+});

@@ -172,6 +172,9 @@ button.chip.confirm { display: block; width: 100%; text-align: left; font: inher
 /* Combos tab: new-combo button and the post-build panel */
 .combos-bar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
 .built { border: 2px solid var(--accent); border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; background: var(--surface); }
+.spot { margin: 8px 0 12px; }
+.spot .find-spot { width: 100%; }
+.spot p { margin: 6px 0 0; }
 .built .link { background: transparent; border: 0; color: var(--accent); padding: 0; min-height: 44px; }
 
 /* Combo edit menu and builder summary */

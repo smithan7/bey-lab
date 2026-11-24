@@ -135,7 +135,9 @@ export function spotTests(state, parts, x, { k = 3, n = BATCH, maxDecks = LOOKAH
 export function spotStatus(res, nameOf, partsById) {
   let text;
   if (res.untested) text = 'Not tested yet. These battles will show where it fits.';
-  else if (res.status === 'in') text = `In your best deck (rated #${res.rank} of ${res.rated}).`;
+  else if (res.status === 'in' && res.notOwned) {
+    return `Would make your best deck (rated #${res.rank} of ${res.rated}) once all of ${nameOf(res.x)}'s parts are marked as owned.`;
+  } else if (res.status === 'in') text = `In your best deck (rated #${res.rank} of ${res.rated}).`;
   else if (res.blockedBy.length) {
     const b = res.blockedBy[0];
     const shared = b.parts.map((p) => partRefName(partsById, p)).join(' and ');
