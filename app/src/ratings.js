@@ -45,9 +45,10 @@ function solveChol(L, b) {
 /**
  * The fitted ridge model behind the ratings: ids, idx (id → row), r (uncentred), Ainv (rows of
  * (XᵀX + λI)⁻¹), sigma2 (residual variance, floored), n (battles per combo), opp (opponent sets).
- * Null when there are no non-mirror battles.
+ * extraIds: combos to include even with no battles (rating 0, prior-only range), after the others.
+ * Null when there are no non-mirror battles and no extraIds.
  */
-export function fitModel(battles, { lambda = LAMBDA } = {}) {
+export function fitModel(battles, { lambda = LAMBDA, extraIds = [] } = {}) {
   const rows = (battles ?? []).filter((b) => b.left !== b.right);
   const ids = [];
   const idx = new Map();
@@ -57,6 +58,8 @@ export function fitModel(battles, { lambda = LAMBDA } = {}) {
     opp.get(b.left).add(b.right);
     opp.get(b.right).add(b.left);
   }
+  const fitted = ids.length; // residual degrees of freedom ignore the extras
+  for (const id of extraIds) if (!idx.has(id)) { idx.set(id, ids.length); ids.push(id); opp.set(id, new Set()); }
   const m = ids.length;
   if (!m) return null;
 
@@ -79,7 +82,7 @@ export function fitModel(battles, { lambda = LAMBDA } = {}) {
     const e = battleScore(b, b.left) - (r[idx.get(b.left)] - r[idx.get(b.right)]);
     rss += e * e;
   }
-  const sigma2 = Math.max(SIGMA2_FLOOR, rss / Math.max(1, rows.length - m));
+  const sigma2 = Math.max(SIGMA2_FLOOR, rss / Math.max(1, rows.length - fitted));
 
   // Ainv is symmetric, so its columns double as rows.
   const Ainv = [];

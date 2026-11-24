@@ -53,3 +53,13 @@ test('logReadout: EV range never goes past ±3', () => {
   assert.ok(r.evCI[0] >= -3 && r.evCI[1] <= 3, String(r.evCI));
   assert.ok(r.ev >= -3 && r.ev <= 3);
 });
+
+test('segmentClasses: kept, gained (bright) and lost (outline) segments vs the original', async () => {
+  const { segmentClasses, segmentsFor } = await import('../src/ui/pickers.js');
+  assert.deepEqual(segmentClasses(5, 3), ['on', 'on', 'on', 'on gain', 'on gain', '', '', '', '', '']);
+  assert.deepEqual(segmentClasses(2, 4), ['on', 'on', 'lost', 'lost', '', '', '', '', '', '']);
+  assert.deepEqual(segmentClasses(3, 3), ['on', 'on', 'on', '', '', '', '', '', '', '']);
+  assert.equal(segmentsFor(0, 160), 0);
+  assert.equal(segmentsFor(3, 160), 1); // anything above zero shows one segment
+  assert.equal(segmentsFor(400, 160), 10);
+});

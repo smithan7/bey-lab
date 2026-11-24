@@ -294,9 +294,16 @@ const SEGMENTS = 10;
 
 /**
  * Packaging-style segmented stat bars with the number at the end. scale is the top of the bar,
- * either one number or { attack: 160, dash: 50, … }.
+ * either one number or { attack: 160, dash: 50, … }. With base (another set of stats, e.g. the
+ * combo this is a variant of), segments gained glow brighter and segments lost show as dim
+ * outlines, and each number carries its change (▲ +12 / ▼ −8).
  */
-export function statBars(stats, { title = 'Packaging stats', scale = 100 } = {}) {
+export const segmentsFor = (v, top) => Math.max(v > 0 ? 1 : 0, Math.min(SEGMENTS, Math.round((v / top) * SEGMENTS)));
+export function segmentClasses(now, base) {
+  return Array.from({ length: SEGMENTS }, (_, i) => (i < Math.min(now, base) ? 'on' : i < now ? 'on gain' : i < base ? 'lost' : ''));
+}
+
+export function statBars(stats, { title = 'Packaging stats', scale = 100, base = null } = {}) {
   const box = h('section', { class: 'statbars', 'aria-label': title });
   const head = h('h3', {}); head.textContent = title;
   box.append(head);
@@ -304,12 +311,19 @@ export function statBars(stats, { title = 'Packaging stats', scale = 100 } = {})
     const v = stats[key];
     if (v == null) continue;
     const top = typeof scale === 'number' ? scale : scale[key] ?? 100;
-    const filled = Math.max(v > 0 ? 1 : 0, Math.min(SEGMENTS, Math.round((v / top) * SEGMENTS)));
-    const bar = h('div', { class: 'segbar', role: 'img', 'aria-label': `${name} ${v}` });
-    for (let i = 0; i < SEGMENTS; i++) bar.append(h('span', { class: i < filled ? 'on' : '' }));
-    const n = h('span', { class: 'statname' }); n.textContent = name;
+    const was = base?.[key];
+    const filled = segmentsFor(v, top);
+    const diff = was == null ? 0 : v - was;
+    const bar = h('div', { class: 'segbar', role: 'img', 'aria-label': `${name} ${v}${diff ? ` (${diff > 0 ? 'up' : 'down'} ${Math.abs(diff)})` : ''}` });
+    for (const cls of segmentClasses(filled, was == null ? filled : segmentsFor(was, top))) bar.append(h('span', { class: cls }));
+    const n = h('span', { class: 'statname' }); n.textContent = diff > 0 ? `★ ${name}` : name;
     const val = h('span', { class: 'statval' }); val.textContent = String(v);
-    box.append(h('div', { class: `statrow stat-${key}` }, n, bar, val));
+    if (diff) {
+      const d = h('span', { class: `delta ${diff > 0 ? 'up' : 'down'}` });
+      d.textContent = diff > 0 ? `▲ +${diff}` : `▼ −${-diff}`;
+      val.append(d);
+    }
+    box.append(h('div', { class: `statrow stat-${key}${diff > 0 ? ' up' : diff < 0 ? ' down' : ''}${base ? ' compare' : ''}` }, n, bar, val));
   }
   return box;
 }

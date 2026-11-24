@@ -3,6 +3,7 @@
 import { blockingParts, comboLabel, comboParts, comboStats, partRefName } from '../combo.js';
 import { ratingsLeaderboard } from '../ratings.js';
 import { variantsFor } from '../ideas.js';
+import { spotTests, spotStatus } from '../spot.js';
 import { matchupStats } from '../stats.js';
 import { pairingScores, finishBreakdown, comboFlags } from '../matchups.js';
 import { makeRng } from '../rng.js';
@@ -80,8 +81,9 @@ const COMBO_SCALE = { attack: 160, defense: 160, stamina: 160, dash: 50, burst: 
 const STAT_NAME = { attack: 'Attack', defense: 'Defense', stamina: 'Stamina', dash: 'X Dash', burst: 'Burst Res.' };
 
 // The combo's packaging stats as the sum of its parts, with how each total adds up.
-export function comboStatBox(cs) {
-  const box = statBars(cs.total, { title: 'Packaging stats (sum of parts)', scale: COMBO_SCALE });
+// With base (the original's stats), gains glow brighter with a ★ and losses show as outlines.
+export function comboStatBox(cs, { base = null, baseName = '' } = {}) {
+  const box = statBars(cs.total, { title: base ? `Packaging stats vs ${baseName}` : 'Packaging stats (sum of parts)', scale: COMBO_SCALE, base: base?.total ?? null });
   const main = ['attack', 'defense', 'stamina'].filter((k) => cs.total[k] != null);
   if (main.length === 3) {
     const lean = main.reduce((a, b) => (cs.total[b] > cs.total[a] ? b : a));
@@ -184,9 +186,13 @@ function buildCard(ctx, state, c, ratingById, topIds) {
   card.append(chips);
 
   const toggles = h('div', { class: 'toggles' });
+  const spot = h('button', { type: 'button', class: 'find-spot' }, 'Find its spot');
+  spot.addEventListener('click', () => openSpot(ctx, c));
+  const suggest = h('button', { type: 'button', class: 'suggest-variants' }, 'Suggest 3 variants');
+  suggest.addEventListener('click', () => openVariantIdeas(ctx, c));
   const edit = h('button', { type: 'button', class: 'edit-combo' }, 'Edit');
   edit.addEventListener('click', () => openEditCombo(ctx, c));
-  toggles.append(edit);
+  toggles.append(spot, suggest, edit);
   card.append(toggles);
   return card;
 }
@@ -207,8 +213,7 @@ function openEditCombo(ctx, c) {
   const battles = n === 1 ? '1 battle' : `${n} battles`;
   sheet.body.append(
     choice('Fix parts', n ? `It was logged with a wrong part. Its ${battles} move to the corrected combo.` : 'Change its parts.', 'fix'),
-    choice('Make a variant', 'Start a new combo from this one (e.g. a different ratchet). This one and its battles stay as they are.', 'variant'),
-    choice('Suggest 3 variants', 'Three versions with other ratchets or bits you own, picked from WBO results and packaging stats.', 'suggest'));
+    choice('Make a variant', 'Start a new combo from this one (e.g. a different ratchet). This one and its battles stay as they are.', 'variant'));
   if (!n) sheet.body.append(choice('Delete combo', 'Remove it. It has no battles, so no test data is lost.', 'delete', 'danger'));
   else sheet.body.append(h('p', { class: 'muted' }, `Combos with battles can’t be deleted, so test data is never lost. Low-rated combos simply stop being suggested for testing.`));
 
@@ -238,8 +243,6 @@ function openEditCombo(ctx, c) {
       justBuilt = id;
       await ctx.refresh();
       document.getElementById('view')?.scrollTo?.(0, 0);
-    } else if (what === 'suggest') {
-      await openVariantIdeas(ctx, c);
     } else if (what === 'delete') {
       try { await ctx.store.deleteCombo(c.id); } catch (e) { toast(e.message); return; }
       if (justBuilt === c.id) justBuilt = null;
@@ -247,6 +250,37 @@ function openEditCombo(ctx, c) {
       await ctx.refresh();
     }
   });
+}
+
+// Up to 3 opponents most likely to settle whether this combo makes the best deck; "Battle" opens
+// the Battle tab with both picked.
+function openSpot(ctx, c) {
+  const state = ctx.store.state();
+  const name = comboLabel(c, ctx.partsById);
+  const sheet = openSheet(`Find the spot for ${name}`);
+  const close = h('button', { type: 'button' }, 'Close');
+  close.addEventListener('click', () => sheet.done(null));
+  sheet.head.append(close, sheet.heading);
+  const byId = new Map(state.combos.map((x) => [x.id, x]));
+  const nameOf = (id) => comboLabel(byId.get(id), ctx.partsById);
+  const res = spotTests(state, ctx.parts, c.id);
+  if (!res) { sheet.body.append(h('p', { class: 'muted' }, 'This combo no longer exists.')); return sheet.promise; }
+  sheet.body.append(h('p', { class: 'detail-title' }, spotStatus(res, nameOf, ctx.partsById)));
+  if (!res.tests.length) {
+    sheet.body.append(h('p', { class: 'muted' }, 'Nothing it can be built alongside has been tested yet.'));
+    return sheet.promise;
+  }
+  sheet.body.append(h('p', { class: 'muted' }, `Battle these to find out if it belongs in your best deck (the top 3 that don't share parts). About 10 battles each; the best one is first.`));
+  for (const t of res.tests) {
+    const opp = byId.get(t.b);
+    const card = h('article', { class: 'report' });
+    card.append(h('header', {}, comboThumbs(opp, ctx.partsById), h('h3', {}, `vs ${nameOf(t.b)}`)), h('p', {}, t.reason));
+    const go = h('button', { type: 'button', class: 'primary' }, 'Battle');
+    go.addEventListener('click', () => { sheet.done(null); ctx.goTo('log', { left: c.id, right: t.b }); });
+    card.append(h('div', { class: 'toggles' }, go));
+    sheet.body.append(card);
+  }
+  return sheet.promise;
 }
 
 // Three suggested variants of a combo; "Try it" saves one and opens the Battle tab against the strongest
@@ -260,11 +294,16 @@ function openVariantIdeas(ctx, c) {
   const list = variantsFor(c, state, ctx.parts, { reference: ctx.reference });
   if (!list.length) sheet.body.append(h('p', { class: 'muted' }, 'No new variants: every ratchet and bit you own has been tried with this blade, or none fit.'));
   const ranked = ratingsLeaderboard(state).map((r) => r.comboId);
+  // The original's summed stats, so each variant shows what it gains (bright, ★) and loses (outline).
+  const original = comboStats(c, ctx.partsById);
+  if (original && list.length) {
+    sheet.body.append(comboStatBox(original), h('p', { class: 'muted' }, '★ Brighter bars and ▲ = more than the original. Outlined bars and ▼ = less.'));
+  }
   for (const v of list) {
     const card = h('article', { class: 'report' });
     card.append(h('header', {}, comboThumbs(v.combo, ctx.partsById), h('h3', {}, comboLabel(v.combo, ctx.partsById))), h('p', {}, v.reason));
     const vs = comboStats(v.combo, ctx.partsById);
-    if (vs) card.append(comboStatBox(vs));
+    if (vs) card.append(comboStatBox(vs, { base: original, baseName: comboLabel(c, ctx.partsById) }));
     const go = h('button', { type: 'button', class: 'primary' }, 'Try it');
     go.addEventListener('click', async () => {
       if (go.disabled) return;

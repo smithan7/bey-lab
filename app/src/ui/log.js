@@ -4,6 +4,7 @@ import { matchupStats } from '../stats.js';
 import { pairingScores } from '../matchups.js';
 import { comboLabel } from '../combo.js';
 import { h, comboThumbs, openComboPicker } from './pickers.js';
+import { spotTests, spotStatus } from '../spot.js';
 
 const clamp3 = (v) => Math.min(3, Math.max(-3, v));
 
@@ -62,6 +63,8 @@ const cap = (s) => s[0].toUpperCase() + s.slice(1);
 let last = { left: null, right: null };
 let lastParams;
 let busy = false;
+// Session memory: the last "who should it battle next?" answer, shown while that pairing is picked.
+let spotNote = null;
 
 export function toast(text) {
   const host = document.getElementById('toast') ?? document.body.appendChild(h('div', { id: 'toast', role: 'status', 'aria-live': 'polite' }));
@@ -248,6 +251,28 @@ export const tab = {
       readout.append(nums);
     } else readout.append(h('p', { class: 'muted' }, 'Pick two different combos to see the record.'));
 
-    el.append(h('div', { class: 'cards' }, card('left', lName), swap, card('right', rName)), errBox, grid, bar, readout);
+    // "Who should it battle next?": fills in the right side with the opponent most likely to
+    // settle whether the left combo makes the best deck.
+    const spotBox = h('section', { class: 'spot' });
+    if (last.left) {
+      const ask = h('button', { type: 'button', class: 'find-spot' }, `Who should ${lName} battle next?`);
+      ask.addEventListener('click', async () => {
+        if (busy) return;
+        const res = spotTests(ctx.store.state(), ctx.parts, last.left, { k: 1 });
+        if (!res) return;
+        const status = spotStatus(res, labelOf, ctx.partsById);
+        const t = res.tests[0];
+        if (!t) { spotNote = { left: last.left, right: null, status, reason: 'Nothing it can be built alongside has been tested yet.' }; await ctx.refresh(); return; }
+        last.right = t.b;
+        spotNote = { left: last.left, right: t.b, status, reason: t.reason };
+        await ctx.refresh();
+      });
+      spotBox.append(ask);
+      if (spotNote && spotNote.left === last.left && (spotNote.right === last.right || !spotNote.right)) {
+        spotBox.append(h('p', { class: 'detail-title' }, spotNote.status), h('p', { class: 'muted' }, spotNote.reason));
+      }
+    }
+
+    el.append(h('div', { class: 'cards' }, card('left', lName), swap, card('right', rName)), spotBox, errBox, grid, bar, readout);
   },
 };
