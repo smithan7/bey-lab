@@ -122,3 +122,24 @@ test('fitModel exposes the inverse matrix: A·A⁻¹ = I and r matches fitRating
   for (const id of m.ids) assert.ok(Math.abs(m.r[m.idx.get(id)] - mean - fr.get(id).r) < 1e-12);
   assert.ok(m.sigma2 >= SIGMA2_FLOOR);
 });
+
+test('fitModel extraIds adds an untested combo without moving others', async () => {
+  const { fitModel } = await import('../src/ratings.js');
+  const battles = [...games('A', 'B', 2, 6), ...games('B', 'C', 1, 4)];
+  const base = fitModel(battles);
+  const m = fitModel(battles, { extraIds: ['X', 'A'] });
+  assert.equal(m.ids.length, 4);
+  for (const id of base.ids) assert.ok(Math.abs(base.r[base.idx.get(id)] - m.r[m.idx.get(id)]) < 1e-12, id);
+  const ix = m.idx.get('X');
+  assert.equal(m.r[ix], 0);
+  assert.equal(m.n[ix], 0);
+  assert.ok(Math.abs(m.Ainv[ix][ix] - 1 / LAMBDA) < 1e-12);
+  const only = fitModel([], { extraIds: ['X'] });
+  assert.ok(only && only.ids.length === 1);
+});
+
+test('fitModel extraIds leaves sigma2 alone', async () => {
+  const { fitModel } = await import('../src/ratings.js');
+  const battles = [...games('A', 'B', 2, 6), ...games('B', 'A', 1, 4), ...games('B', 'C', 1, 4), ...games('C', 'A', 3, 3)];
+  assert.equal(fitModel(battles, { extraIds: ['X'] }).sigma2, fitModel(battles).sigma2);
+});
