@@ -23,7 +23,7 @@ const withId = (c) => ({ ...c, id: comboId(c) });
 const fmt = (v) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}`;
 
 // Standard normal CDF (Abramowitz–Stegun 7.1.26 erf, |error| < 1.5e-7).
-function phi(z) {
+export function phi(z) {
   if (z === Infinity) return 1;
   if (z === -Infinity) return 0;
   const x = Math.abs(z) / Math.SQRT2;
