@@ -78,13 +78,13 @@ main { flex: 1; overflow-y: auto; padding: 16px; -webkit-overflow-scrolling: tou
 .list-btn { display: block; width: 100%; text-align: left; margin-bottom: 8px; padding: 12px 16px; }
 .muted { color: var(--muted); }
 .combo-name { font-size: 20px; font-weight: 600; }
-.cards { display: flex; align-items: stretch; gap: 8px; margin-bottom: 12px; }
+.cards { display: flex; align-items: stretch; gap: 8px; margin-bottom: 8px; }
 .combo-card { flex: 1; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; text-align: left; min-height: 88px; padding: 8px 16px; }
 .swap { min-width: 56px; padding: 0; font-size: 24px; }
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
-.grid button, .row2 button { min-height: 64px; font-weight: 600; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.grid button, .row2 button { min-height: 54px; font-weight: 600; }
 .grid .win { background: var(--surface); }
-.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
 button:disabled { opacity: .5; }
 .readout { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 4px 16px 12px; }
 .readout h3 { margin: 12px 0 4px; font-size: 17px; }
@@ -172,9 +172,9 @@ button.chip.confirm { display: block; width: 100%; text-align: left; font: inher
 /* Combos tab: new-combo button and the post-build panel */
 .combos-bar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
 .built { border: 2px solid var(--accent); border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; background: var(--surface); }
-.spot { margin: 8px 0 12px; }
-.spot .find-spot { width: 100%; }
-.spot p { margin: 6px 0 0; }
+.spot { margin: 0 0 8px; }
+.spot .find-spot { width: 100%; min-height: 44px; font-size: 15px; }
+.spot p { margin: 4px 0 0; font-size: 15px; }
 .built .link { background: transparent; border: 0; color: var(--accent); padding: 0; min-height: 44px; }
 
 /* Combo edit menu and builder summary */
